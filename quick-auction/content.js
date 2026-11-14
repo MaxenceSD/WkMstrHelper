@@ -92,11 +92,11 @@
             return Math.max(1, baseAmount);
         }
 
-        // Une mise existe : on ajoute 10 %.
+        // Une mise existe : on ajoute 10,5 % pour dépasser le minimum du site.
         return Math.max(
             1,
             baseAmount,
-            Math.ceil(currentBid * 1.10)
+            Math.ceil(currentBid * 1.105)
         );
     }
 

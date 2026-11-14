@@ -190,7 +190,7 @@
 
             }
 
-            // +10 % et -10 % sur le montant personnalisé actuel
+            // +10,5 % et -10 % sur le montant personnalisé actuel
 
             decrease.addEventListener("click", () => {
 
@@ -207,7 +207,7 @@
 
                 if (!Number.isFinite(current)) return;
 
-                updateAmount(current * 1.10);
+                updateAmount(Math.ceil(current * 1.105));
             });
 
             amountContainer.appendChild(decrease);
@@ -239,7 +239,7 @@
                 if (percent === 0) {
                     button.textContent = `=`;
                 } else {
-                    button.textContent = `+${percent}%`;
+                    button.textContent = `+${percent.toLocaleString("fr-FR")}%`;
                 }
 
                 button.style.cssText = `
@@ -268,9 +268,11 @@
                     if (!Number.isFinite(baseAmount)) return;
 
                     // Calcul indépendant du champ personnalisé
-                    const newAmount = Math.round(
-                        baseAmount * (1 + percent / 100)
-                    );
+                    const calculatedAmount =
+                        baseAmount * (1 + percent / 100);
+                    const newAmount = percent === 10.5
+                        ? Math.ceil(calculatedAmount)
+                        : Math.round(calculatedAmount);
 
                     updateAmount(newAmount);
                 });
