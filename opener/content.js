@@ -21,6 +21,61 @@
     };
 
     const CONTROLLER_KEY = "__wikiMastersController";
+    const SCHEDULE_STORAGE_KEY = "wikiMastersOpenerSchedule";
+
+    function normalizeSchedule(value) {
+        const schedule = {
+            start: value?.start ?? "",
+            end: value?.end ?? ""
+        };
+        const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
+        if (
+            (schedule.start !== "" && !timePattern.test(schedule.start)) ||
+            (schedule.end !== "" && !timePattern.test(schedule.end))
+        ) {
+            throw new Error("Les heures enregistrées pour l’opener sont invalides.");
+        }
+
+        return schedule;
+    }
+
+    function loadSchedule() {
+        return new Promise((resolve, reject) => {
+            chrome.storage.local.get(SCHEDULE_STORAGE_KEY, result => {
+                const error = chrome.runtime.lastError;
+
+                if (error) {
+                    reject(new Error(error.message));
+                    return;
+                }
+
+                try {
+                    resolve(normalizeSchedule(result[SCHEDULE_STORAGE_KEY]));
+                } catch (validationError) {
+                    reject(validationError);
+                }
+            });
+        });
+    }
+
+    function saveSchedule(schedule) {
+        return new Promise((resolve, reject) => {
+            chrome.storage.local.set(
+                { [SCHEDULE_STORAGE_KEY]: schedule },
+                () => {
+                    const error = chrome.runtime.lastError;
+
+                    if (error) {
+                        reject(new Error(error.message));
+                        return;
+                    }
+
+                    resolve();
+                }
+            );
+        });
+    }
 
     // =====================================================
     // ÉVITER LES INITIALISATIONS MULTIPLES
@@ -54,6 +109,15 @@
 
         let timer = null;
         let cancelWait = null;
+        let schedule = { start: "", end: "" };
+
+        const scheduleReady = loadSchedule().then(savedSchedule => {
+            schedule = savedSchedule;
+        });
+
+        scheduleReady.catch(error => {
+            console.error("Impossible de charger les horaires de l’opener :", error);
+        });
 
         // =================================================
         // WIDGET
@@ -116,6 +180,16 @@
                     height: 17px;
                 }
 
+                .settings-button {
+                    border-color: #475569;
+                    background: #1e293b;
+                    color: #cbd5e1;
+                }
+
+                .settings-button:hover {
+                    background: #334155;
+                }
+
                 .label {
                     font-size: 10px;
                     color: #94a3b8;
@@ -127,6 +201,91 @@
                     font-size: 15px;
                     font-weight: bold;
                     font-variant-numeric: tabular-nums;
+                }
+
+                dialog {
+                    width: min(320px, calc(100vw - 32px));
+                    padding: 18px;
+                    border: 1px solid #475569;
+                    border-radius: 12px;
+                    background: #0b0f19;
+                    color: #f8fafc;
+                    box-shadow: 0 16px 48px #0009;
+                    font: 14px Arial, sans-serif;
+                }
+
+                dialog::backdrop {
+                    background: #0009;
+                }
+
+                dialog h2 {
+                    margin: 0 0 8px;
+                    font-size: 17px;
+                }
+
+                dialog p {
+                    margin: 0 0 16px;
+                    color: #94a3b8;
+                    font-size: 12px;
+                    line-height: 1.4;
+                }
+
+                .time-fields {
+                    display: grid;
+                    gap: 12px;
+                }
+
+                .time-fields label {
+                    display: grid;
+                    gap: 5px;
+                    color: #cbd5e1;
+                    font-size: 12px;
+                }
+
+                .time-fields input {
+                    width: 100%;
+                    padding: 9px;
+                    border: 1px solid #475569;
+                    border-radius: 7px;
+                    background: #111827;
+                    color: #f8fafc;
+                    font: inherit;
+                }
+
+                .dialog-actions {
+                    display: flex;
+                    flex-wrap: wrap;
+                    justify-content: flex-end;
+                    gap: 8px;
+                    margin-top: 18px;
+                }
+
+                .dialog-actions button {
+                    width: auto;
+                    height: auto;
+                    padding: 8px 10px;
+                    border-radius: 7px;
+                    font-size: 12px;
+                }
+
+                .save-button {
+                    border-color: #22c55e;
+                    background: #14532d;
+                    color: #bbf7d0;
+                }
+
+                .clear-button,
+                .close-button {
+                    border-color: #475569;
+                    background: #1e293b;
+                    color: #cbd5e1;
+                }
+
+                .dialog-status {
+                    min-height: 15px;
+                    margin-top: 10px;
+                    color: #fca5a5;
+                    font-size: 11px;
                 }
             </style>
 
@@ -140,16 +299,60 @@
                     </svg>
                 </button>
 
+                <button id="settings" class="settings-button"
+                    type="button" title="Paramètres des horaires"
+                    aria-label="Paramètres des horaires">
+                    <svg viewBox="0 0 24 24" fill="currentColor"
+                        aria-hidden="true">
+                        <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.07-.94l2.03-1.58c.18-.14.23-.41.12-.62l-1.92-3.32c-.12-.22-.37-.3-.6-.22l-2.39.96c-.5-.38-1.03-.69-1.62-.93l-.36-2.55c-.04-.24-.25-.41-.49-.41h-3.84c-.24 0-.45.17-.49.41L9.21 5.35c-.59.24-1.13.55-1.62.93L5.2 5.32c-.23-.09-.48 0-.6.22L2.68 8.86c-.12.21-.07.48.12.62l2.03 1.58c-.05.31-.08.63-.08.94s.02.63.07.94L2.8 14.52c-.18.14-.23.41-.12.62l1.92 3.32c.12.22.37.3.6.22l2.39-.96c.5.38 1.03.69 1.62.93l.36 2.55c.04.24.25.41.49.41h3.84c.24 0 .45-.17.49-.41l.36-2.55c.59-.24 1.13-.55 1.62-.93l2.39.96c.23.09.48 0 .6-.22l1.92-3.32c.12-.21.07-.48-.12-.62l-2.03-1.58zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/>
+                    </svg>
+                </button>
+
                 <div>
                     <div class="countdown" id="countdown">--:--</div>
                 </div>
             </div>
+
+            <dialog id="schedule-dialog" aria-labelledby="schedule-title">
+                <form id="schedule-form">
+                    <h2 id="schedule-title">Horaires de l’opener</h2>
+                    <p>Chaque heure est facultative ; laisse les deux vides pour désactiver la limite.</p>
+                    <div class="time-fields">
+                        <label>
+                            Heure de début
+                            <input id="start-time" type="time">
+                        </label>
+                        <label>
+                            Heure de fin
+                            <input id="end-time" type="time">
+                        </label>
+                    </div>
+                    <div class="dialog-status" id="schedule-status" role="status"></div>
+                    <div class="dialog-actions">
+                        <button class="clear-button" id="clear-schedule" type="button">
+                            Supprimer les heures
+                        </button>
+                        <button class="close-button" id="close-dialog" type="button">
+                            Fermer
+                        </button>
+                        <button class="save-button" type="submit">
+                            Enregistrer
+                        </button>
+                    </div>
+                </form>
+            </dialog>
         `;
 
         const $ = id => shadow.getElementById(id);
 
         const button = $("toggle");
         const countdown = $("countdown");
+        const settingsButton = $("settings");
+        const scheduleDialog = $("schedule-dialog");
+        const scheduleForm = $("schedule-form");
+        const startTimeInput = $("start-time");
+        const endTimeInput = $("end-time");
+        const scheduleStatus = $("schedule-status");
 
         const powerIcon = button.innerHTML;
 
@@ -274,6 +477,31 @@
             );
         }
 
+        function timeToMinutes(value) {
+            if (!value) return null;
+
+            const [hours, minutes] = value.split(":").map(Number);
+            return hours * 60 + minutes;
+        }
+
+        function isWithinSchedule() {
+            const start = timeToMinutes(schedule.start);
+            const end = timeToMinutes(schedule.end);
+
+            if (start === null && end === null) return true;
+
+            const now = new Date();
+            const currentTime = now.getHours() * 60 + now.getMinutes();
+
+            if (start === null) return currentTime < end;
+            if (end === null) return currentTime >= start;
+            if (start === end) return true;
+
+            return start < end
+                ? currentTime >= start && currentTime < end
+                : currentTime >= start || currentTime < end;
+        }
+
         // =================================================
         // CYCLE AUTOMATIQUE
         // =================================================
@@ -331,11 +559,13 @@
 
         async function loop(run) {
 
+            await scheduleReady;
+
             while (running && run === runId) {
 
                 const open = findOpen();
 
-                if (open && !open.disabled) {
+                if (open && !open.disabled && isWithinSchedule()) {
 
                     open.click();
 
@@ -389,6 +619,67 @@
                 stop();
             } else {
                 start();
+            }
+        });
+
+        settingsButton.addEventListener("click", async () => {
+            scheduleStatus.textContent = "";
+
+            try {
+                await scheduleReady;
+                startTimeInput.value = schedule.start;
+                endTimeInput.value = schedule.end;
+            } catch (error) {
+                console.error("Impossible de charger les horaires de l’opener :", error);
+                startTimeInput.value = "";
+                endTimeInput.value = "";
+                scheduleStatus.textContent =
+                    "Impossible de charger les horaires enregistrés. Tu peux les redéfinir.";
+            }
+
+            if (!scheduleDialog.open) {
+                scheduleDialog.showModal();
+            }
+        });
+
+        $("close-dialog").addEventListener("click", () => {
+            scheduleDialog.close();
+        });
+
+        scheduleForm.addEventListener("submit", async event => {
+            event.preventDefault();
+            scheduleStatus.textContent = "";
+
+            try {
+                const updatedSchedule = normalizeSchedule({
+                    start: startTimeInput.value,
+                    end: endTimeInput.value
+                });
+
+                await saveSchedule(updatedSchedule);
+                schedule = updatedSchedule;
+                scheduleDialog.close();
+            } catch (error) {
+                console.error("Impossible d’enregistrer les horaires de l’opener :", error);
+                scheduleStatus.textContent =
+                    "Impossible d’enregistrer les horaires. Réessaie.";
+            }
+        });
+
+        $("clear-schedule").addEventListener("click", async () => {
+            scheduleStatus.textContent = "";
+            const clearedSchedule = { start: "", end: "" };
+
+            try {
+                await saveSchedule(clearedSchedule);
+                schedule = clearedSchedule;
+                startTimeInput.value = "";
+                endTimeInput.value = "";
+                scheduleStatus.textContent = "Les horaires ont été supprimés.";
+            } catch (error) {
+                console.error("Impossible de supprimer les horaires de l’opener :", error);
+                scheduleStatus.textContent =
+                    "Impossible de supprimer les horaires. Réessaie.";
             }
         });
 
