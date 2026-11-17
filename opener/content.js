@@ -10,14 +10,10 @@
         path: "/pulls",
 
         initialDelay: 30,
-        openDelay: 45,
-
         arrowClicks: 4,
-        arrowDelay: 1,
-        arrowDelayRandom: 3,
-
-        checkDelay: 300,
-        checkDelayRandom: 45
+        defaultOpenDelaySeconds: 45,
+        defaultCardDelaySeconds: 3,
+        defaultCheckDelayMinutes: 5
     };
 
     const CONTROLLER_KEY = "__wikiMastersController";
@@ -26,15 +22,29 @@
     function normalizeSchedule(value) {
         const schedule = {
             start: value?.start ?? "",
-            end: value?.end ?? ""
+            end: value?.end ?? "",
+            openDelaySeconds: Number(
+                value?.openDelaySeconds ?? CONFIG.defaultOpenDelaySeconds
+            ),
+            checkDelayMinutes: Number(
+                value?.checkDelayMinutes ?? CONFIG.defaultCheckDelayMinutes
+            ),
+            cardDelaySeconds: Number(
+                value?.cardDelaySeconds ?? CONFIG.defaultCardDelaySeconds
+            )
         };
         const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+        const isValidDelay = delay =>
+            Number.isInteger(delay) && delay >= 1 && delay <= 100;
 
         if (
             (schedule.start !== "" && !timePattern.test(schedule.start)) ||
-            (schedule.end !== "" && !timePattern.test(schedule.end))
+            (schedule.end !== "" && !timePattern.test(schedule.end)) ||
+            !isValidDelay(schedule.openDelaySeconds) ||
+            !isValidDelay(schedule.checkDelayMinutes) ||
+            !isValidDelay(schedule.cardDelaySeconds)
         ) {
-            throw new Error("Les heures enregistrées pour l’opener sont invalides.");
+            throw new Error("Les paramètres enregistrés pour l’opener sont invalides.");
         }
 
         return schedule;
@@ -205,6 +215,8 @@
 
                 dialog {
                     width: min(320px, calc(100vw - 32px));
+                    max-height: calc(100vh - 32px);
+                    overflow-y: auto;
                     padding: 18px;
                     border: 1px solid #475569;
                     border-radius: 12px;
@@ -230,19 +242,38 @@
                     line-height: 1.4;
                 }
 
-                .time-fields {
+                .settings-section {
+                    padding: 12px;
+                    border: 1px solid #334155;
+                    border-radius: 9px;
+                    background: #111827;
+                }
+
+                .settings-section + .settings-section {
+                    margin-top: 12px;
+                    border-color: #475569;
+                    background: #151d2b;
+                }
+
+                .settings-section h3 {
+                    margin: 0 0 10px;
+                    color: #e2e8f0;
+                    font-size: 13px;
+                }
+
+                .settings-fields {
                     display: grid;
                     gap: 12px;
                 }
 
-                .time-fields label {
+                .settings-fields label {
                     display: grid;
                     gap: 5px;
                     color: #cbd5e1;
                     font-size: 12px;
                 }
 
-                .time-fields input {
+                .settings-fields input {
                     width: 100%;
                     padding: 9px;
                     border: 1px solid #475569;
@@ -290,7 +321,8 @@
             </style>
 
             <div class="widget">
-                <button id="toggle" title="Activer">
+                <button id="toggle" type="button" title="Activer"
+                    aria-label="Activer l’opener" aria-pressed="false">
                     <svg viewBox="0 0 24 24" fill="none"
                         stroke="currentColor" stroke-width="2"
                         stroke-linecap="round">
@@ -300,8 +332,8 @@
                 </button>
 
                 <button id="settings" class="settings-button"
-                    type="button" title="Paramètres des horaires"
-                    aria-label="Paramètres des horaires">
+                    type="button" title="Paramètres de l’opener"
+                    aria-label="Paramètres de l’opener">
                     <svg viewBox="0 0 24 24" fill="currentColor"
                         aria-hidden="true">
                         <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.07-.94l2.03-1.58c.18-.14.23-.41.12-.62l-1.92-3.32c-.12-.22-.37-.3-.6-.22l-2.39.96c-.5-.38-1.03-.69-1.62-.93l-.36-2.55c-.04-.24-.25-.41-.49-.41h-3.84c-.24 0-.45.17-.49.41L9.21 5.35c-.59.24-1.13.55-1.62.93L5.2 5.32c-.23-.09-.48 0-.6.22L2.68 8.86c-.12.21-.07.48.12.62l2.03 1.58c-.05.31-.08.63-.08.94s.02.63.07.94L2.8 14.52c-.18.14-.23.41-.12.62l1.92 3.32c.12.22.37.3.6.22l2.39-.96c.5.38 1.03.69 1.62.93l.36 2.55c.04.24.25.41.49.41h3.84c.24 0 .45-.17.49-.41l.36-2.55c.59-.24 1.13-.55 1.62-.93l2.39.96c.23.09.48 0 .6-.22l1.92-3.32c.12-.21.07-.48-.12-.62l-2.03-1.58zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/>
@@ -315,18 +347,41 @@
 
             <dialog id="schedule-dialog" aria-labelledby="schedule-title">
                 <form id="schedule-form">
-                    <h2 id="schedule-title">Horaires de l’opener</h2>
-                    <p>Chaque heure est facultative ; laisse les deux vides pour désactiver la limite.</p>
-                    <div class="time-fields">
-                        <label>
-                            Heure de début
-                            <input id="start-time" type="time">
-                        </label>
-                        <label>
-                            Heure de fin
-                            <input id="end-time" type="time">
-                        </label>
-                    </div>
+                    <h2 id="schedule-title">Paramètres de l’opener</h2>
+                    <p>Les délais varient aléatoirement de ±10 % autour de la valeur choisie. Laisse les heures vides pour désactiver la plage.</p>
+                    <section class="settings-section">
+                        <h3>Plage horaire</h3>
+                        <div class="settings-fields">
+                            <label>
+                                Heure de début
+                                <input id="start-time" type="time">
+                            </label>
+                            <label>
+                                Heure de fin
+                                <input id="end-time" type="time">
+                            </label>
+                        </div>
+                    </section>
+                    <section class="settings-section">
+                        <h3>Délais</h3>
+                        <div class="settings-fields">
+                            <label>
+                                Délai entre les paquets (minutes)
+                                <input id="check-delay" type="number"
+                                    min="1" max="100" step="1" required>
+                            </label>
+                            <label>
+                                Délai après ouverture du paquet (secondes)
+                                <input id="open-delay" type="number"
+                                    min="1" max="100" step="1" required>
+                            </label>
+                            <label>
+                                Délai entre les cartes (secondes)
+                                <input id="card-delay" type="number"
+                                    min="1" max="100" step="1" required>
+                            </label>
+                        </div>
+                    </section>
                     <div class="dialog-status" id="schedule-status" role="status"></div>
                     <div class="dialog-actions">
                         <button class="clear-button" id="clear-schedule" type="button">
@@ -352,6 +407,9 @@
         const scheduleForm = $("schedule-form");
         const startTimeInput = $("start-time");
         const endTimeInput = $("end-time");
+        const openDelayInput = $("open-delay");
+        const checkDelayInput = $("check-delay");
+        const cardDelayInput = $("card-delay");
         const scheduleStatus = $("schedule-status");
 
         const powerIcon = button.innerHTML;
@@ -370,6 +428,11 @@
             button.innerHTML = running ? stopIcon : powerIcon;
             button.classList.toggle("active", running);
             button.title = running ? "Désactiver" : "Activer";
+            button.setAttribute(
+                "aria-label",
+                running ? "Désactiver l’opener" : "Activer l’opener"
+            );
+            button.setAttribute("aria-pressed", String(running));
 
             if (!running || nextActionAt === null) {
                 countdown.textContent = "--:--";
@@ -502,17 +565,23 @@
                 : currentTime >= start || currentTime < end;
         }
 
+        function randomizedDelay(value) {
+            return value * (0.9 + Math.random() * 0.2);
+        }
+
         // =================================================
         // CYCLE AUTOMATIQUE
         // =================================================
 
-        async function executeCycle(run, delay) {
+        async function executeCycle(run, isAfterPackageOpen) {
 
             // Attente initiale
 
-            if (!await wait(run, delay === 0
-                ? CONFIG.initialDelay
-                : delay
+            if (!await wait(
+                run,
+                isAfterPackageOpen
+                    ? randomizedDelay(schedule.openDelaySeconds)
+                    : CONFIG.initialDelay
             )) return;
 
             // 4 clics sur la flèche
@@ -534,8 +603,7 @@
 
                 if (!await wait(
                     run,
-                    CONFIG.arrowDelay,
-                    CONFIG.arrowDelayRandom
+                    randomizedDelay(schedule.cardDelaySeconds)
                 )) return;
             }
 
@@ -569,19 +637,18 @@
 
                     open.click();
 
-                    await executeCycle(run, CONFIG.openDelay);
+                    await executeCycle(run, true);
 
                 } else if (findArrow()) {
 
-                    await executeCycle(run, 0);
+                    await executeCycle(run, false);
                 }
 
                 if (!running || run !== runId) return;
 
                 if (!await wait(
                     run,
-                    CONFIG.checkDelay,
-                    CONFIG.checkDelayRandom
+                    randomizedDelay(schedule.checkDelayMinutes * 60)
                 )) return;
             }
         }
@@ -613,7 +680,9 @@
         // BOUTON
         // =================================================
 
-        button.addEventListener("click", () => {
+        button.addEventListener("click", event => {
+            event.preventDefault();
+            event.stopPropagation();
 
             if (running) {
                 stop();
@@ -629,12 +698,18 @@
                 await scheduleReady;
                 startTimeInput.value = schedule.start;
                 endTimeInput.value = schedule.end;
+                openDelayInput.value = String(schedule.openDelaySeconds);
+                checkDelayInput.value = String(schedule.checkDelayMinutes);
+                cardDelayInput.value = String(schedule.cardDelaySeconds);
             } catch (error) {
-                console.error("Impossible de charger les horaires de l’opener :", error);
+                console.error("Impossible de charger les paramètres de l’opener :", error);
                 startTimeInput.value = "";
                 endTimeInput.value = "";
+                openDelayInput.value = String(CONFIG.defaultOpenDelaySeconds);
+                checkDelayInput.value = String(CONFIG.defaultCheckDelayMinutes);
+                cardDelayInput.value = String(CONFIG.defaultCardDelaySeconds);
                 scheduleStatus.textContent =
-                    "Impossible de charger les horaires enregistrés. Tu peux les redéfinir.";
+                    "Impossible de charger les paramètres enregistrés. Tu peux les redéfinir.";
             }
 
             if (!scheduleDialog.open) {
@@ -653,26 +728,34 @@
             try {
                 const updatedSchedule = normalizeSchedule({
                     start: startTimeInput.value,
-                    end: endTimeInput.value
+                    end: endTimeInput.value,
+                    openDelaySeconds: openDelayInput.value,
+                    checkDelayMinutes: checkDelayInput.value,
+                    cardDelaySeconds: cardDelayInput.value
                 });
 
                 await saveSchedule(updatedSchedule);
                 schedule = updatedSchedule;
                 scheduleDialog.close();
             } catch (error) {
-                console.error("Impossible d’enregistrer les horaires de l’opener :", error);
+                console.error("Impossible d’enregistrer les paramètres de l’opener :", error);
                 scheduleStatus.textContent =
-                    "Impossible d’enregistrer les horaires. Réessaie.";
+                    "Impossible d’enregistrer les paramètres. Réessaie.";
             }
         });
 
         $("clear-schedule").addEventListener("click", async () => {
             scheduleStatus.textContent = "";
-            const clearedSchedule = { start: "", end: "" };
+            const clearedSchedule = {
+                ...schedule,
+                start: "",
+                end: ""
+            };
 
             try {
-                await saveSchedule(clearedSchedule);
-                schedule = clearedSchedule;
+                const normalizedSchedule = normalizeSchedule(clearedSchedule);
+                await saveSchedule(normalizedSchedule);
+                schedule = normalizedSchedule;
                 startTimeInput.value = "";
                 endTimeInput.value = "";
                 scheduleStatus.textContent = "Les horaires ont été supprimés.";
