@@ -107,6 +107,60 @@
         return new Intl.NumberFormat("fr-FR").format(amount);
     }
 
+    function updateDisplayedAmount(card, labelText, amount) {
+        if (!Number.isFinite(amount)) return false;
+
+        const label = [...card.querySelectorAll("span")].find(
+            element => element.textContent.trim() === labelText
+        );
+        const value = label?.nextElementSibling;
+
+        if (!value) return false;
+
+        const formattedAmount = formatAmount(amount);
+        let amountText = null;
+
+        for (const child of value.childNodes) {
+            if (
+                child.nodeType === Node.TEXT_NODE &&
+                child.textContent.trim()
+            ) {
+                amountText = child;
+            }
+        }
+
+        if (amountText) {
+            amountText.textContent = formattedAmount;
+        } else {
+            value.appendChild(document.createTextNode(formattedAmount));
+        }
+
+        return true;
+    }
+
+    function updateCardPrices(panel, auction) {
+        const card = panel.closest(CARD_SELECTOR);
+
+        if (!card) {
+            console.warn("[WKM Quick Auction] Carte introuvable pour actualiser son prix.");
+            return;
+        }
+
+        const startingBidUpdated = updateDisplayedAmount(
+            card,
+            "Mise de départ",
+            Number(auction.base_amount)
+        );
+        const currentBidUpdated = auction.current_bid === null ||
+            auction.current_bid === undefined
+            ? false
+            : updateDisplayedAmount(card, "Mise actuelle", Number(auction.current_bid));
+
+        if (!startingBidUpdated && !currentBidUpdated) {
+            console.warn("[WKM Quick Auction] Prix affiché introuvable sur la carte.");
+        }
+    }
+
     /**
      * Crée un bouton avec une icône et un libellé accessible.
      */
@@ -160,6 +214,8 @@
         try {
             const auction =
                 await window.WKMQuickAuctionApi.getAuction(auctionId);
+
+            updateCardPrices(panel, auction);
 
             const minimumBid = getMinimumBid(auction);
 
