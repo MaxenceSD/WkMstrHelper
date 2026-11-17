@@ -142,9 +142,9 @@
 
             for (let index = 0; index < cardsToSell.length; index += 1) {
 
-                // Attente aléatoire entre 3 et 8 secondes entre les ventes.
+                // Attente fixe de 3 secondes entre les ventes.
                 if (index > 0) {
-                    const delayMs = 3000 + Math.floor(Math.random() * 5001);
+                    const delayMs = 3000;
                     let remainingMs = delayMs;
 
                     while (remainingMs > 0) {
