@@ -41,7 +41,8 @@
         "quick-market/modal.js",
         "quick-market/content.js",
         "quick-auction/api.js",
-        "quick-auction/content.js"
+        "quick-auction/content.js",
+        "collection-auction/content.js"
       ],
       "run_at": "document_idle"
     }
