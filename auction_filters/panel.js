@@ -1,63 +1,89 @@
 (() => {
   'use strict';
   const CSS = `
-  :host{display:block;color-scheme:dark;font:13px/1.5 system-ui,Segoe UI,sans-serif;color:#edf2ff;text-align:left;--muted:#a4b3cb;--gold:#f4cb7d;--line:#2a354b}*{box-sizing:border-box}button,input,select{font:inherit}
-  .panel{background:#101725;border:1px solid #354159;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px #0002}header{display:flex;gap:12px;align-items:center;padding:14px 18px;background:linear-gradient(110deg,#1b2437,#111927);border-bottom:1px solid var(--line)}svg{width:40px;height:40px;flex:none}.brand{flex:1}.brand strong{font-size:14px;letter-spacing:1.5px}.brand span{color:var(--gold)}.eyebrow{font-size:10px;letter-spacing:1px;color:var(--muted);margin-top:2px}.tag{font-size:10px;border:1px solid #504164;color:#c6b6ea;border-radius:20px;padding:3px 8px;white-space:nowrap}
-  button{cursor:pointer;border:1px solid #394762;background:#202c41;color:#e4ebfa;border-radius:8px;padding:9px 12px;font-weight:650}button:hover:enabled{border-color:#a6b7d6;background:#2a3850}button:disabled{opacity:.45;cursor:not-allowed}button:focus-visible,a:focus-visible{outline:2px solid var(--gold);outline-offset:3px}.fold{padding:4px 10px;font-size:20px}.primary{background:var(--gold);color:#241c12;border-color:var(--gold)}.primary:hover:enabled{background:#ffe0a0}.active{background:#183c32;color:#9df2d0;border-color:#377e66}.stop{color:#ffc3ca;background:#3c2735}.quiet{background:transparent;font-size:11px;color:var(--muted)}
-  .body{padding:16px 18px}.filters{display:grid;grid-template-columns:1.2fr 1.2fr;gap:16px}.group{min-width:0}.legend{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--gold);font-weight:750;margin:0 0 9px}.range{display:grid;grid-template-columns:1fr 1fr;gap:8px}label{display:block;color:var(--muted);font-size:11px}input[type=number],select{width:100%;min-width:0;background:#192337;border:1px solid #394762;border-radius:8px;padding:9px 10px;color:#f2f5ff;margin-top:4px}input:focus,select:focus{outline:2px solid #a79bd4;outline-offset:1px}input[type=checkbox]{accent-color:#76dfb6;width:16px;height:16px;flex:none}input::placeholder{color:#71819d}.chips{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap}.chips button{padding:4px 8px;font-size:10px}
-  .opportunities{display:flex;align-items:center;gap:18px;margin-top:16px;border-top:1px solid var(--line);padding-top:14px}.check{display:flex;align-items:center;gap:9px;color:#d5f6e9;font-size:12px;font-weight:650;flex:1}.discount{display:flex;align-items:center;gap:8px}.discount select{width:140px;margin:0}.discount input{width:80px;margin:0}.help{font-size:11px;color:var(--muted);margin:8px 0;line-height:1.6}.counts{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0 10px}.count{border:1px solid var(--line);border-radius:9px;background:#0d1422;padding:7px 12px;color:var(--muted);font-size:11px}.count b{font-size:17px;color:#f0f5ff;margin-right:5px;font-variant-numeric:tabular-nums}.count:first-child b{color:#77dfb6}.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.spacer{flex:1}.actions select{width:130px;margin:0}.status{color:#c3b2ee;margin:10px 0 0;font-size:12px}.warning,.error{border-left:2px solid var(--gold);padding:6px 10px;background:#e6b85f0b;color:#f6d99d;font-size:11px;margin:10px 0}.error{color:#ffc0c7;border-color:#ec8792}.error:empty,.warning:empty{display:none}
-  details{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}summary{cursor:pointer;color:#c8d4e8;font-weight:600;font-size:12px}.results{max-height:280px;overflow:auto;margin-top:10px;display:grid;gap:5px}.row{display:flex;align-items:center;gap:8px;padding:7px 9px;background:#182338;border-radius:8px}.row a{flex:1;min-width:0;color:#e8eef9;text-decoration:none;font-size:12px}.row small{display:block;color:var(--muted);font-size:10px}.star{padding:4px 8px;color:var(--gold)}.footer{margin-top:12px;display:flex;justify-content:space-between;gap:12px}.note{color:#94a5c1;font-size:10px;max-width:720px}[hidden]{display:none!important}
-  @media(max-width:850px){.opportunities{align-items:flex-start;flex-direction:column;gap:10px}.spacer,.tag{display:none}}
-  @media(max-width:480px){.filters{grid-template-columns:1fr}.body,header{padding:12px}.brand strong{font-size:12px}.counts{gap:5px}.count{padding:5px 8px}.footer{flex-direction:column}}`;
+  :host{display:block;color-scheme:dark;font:12px/1.4 system-ui,Segoe UI,sans-serif;color:#edf2ff;text-align:left;--muted:#9eacc2;--line:#2b3548;--accent:#c6a9ff}*{box-sizing:border-box}
+  .panel{background:#101725;border:1px solid #303b50;border-radius:12px;overflow:hidden;box-shadow:0 4px 14px #0002}
+  header{height:38px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;background:#141d2c;border-bottom:1px solid var(--line)}
+  header strong{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#c7d2e5}
+  button,input,select{font:inherit}button{cursor:pointer;border:1px solid #394762;background:#202c41;color:#e4ebfa;border-radius:7px;padding:6px 10px;font-weight:650;white-space:nowrap}
+  button:hover:enabled{border-color:#a6b7d6;background:#2a3850}button:disabled{opacity:.45;cursor:not-allowed}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .fold{width:26px;height:26px;padding:0;font-size:16px;line-height:1}
+  .body{padding:10px 12px}.filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .field,.discount{min-width:0;display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid #29364a;border-radius:9px;background:#0d1420}
+  .field-title{flex:none;color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+  .range{display:flex;align-items:center;gap:6px;min-width:0;flex:1}.range input{width:50%;min-width:0}
+  input[type=number],select{height:30px;min-width:0;background:#172235;border:1px solid #35435b;border-radius:6px;padding:4px 7px;color:#f2f5ff}
+  input::placeholder{color:#7788a2}.discount{justify-content:space-between}.discount-toggle{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;white-space:nowrap}
+  input[type=checkbox]{accent-color:#c6a9ff;width:14px;height:14px;margin:0}.discount-value{display:flex;align-items:center;gap:4px;color:var(--muted);font-size:11px}.discount-value input{width:54px}
+  .explorer{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;padding:7px 9px;border:1px solid #29364a;border-radius:9px;background:#0d1420}
+  .explorer-title{font-size:10px;font-weight:750;letter-spacing:.05em;text-transform:uppercase;color:#c7d2e5}.explorer-controls{display:flex;align-items:center;gap:6px}
+  .explorer select{width:110px}.primary{background:#26334a;border-color:#465672}.stop{color:#ffc3ca;background:#392632}
+  .error{margin:7px 0 0;padding:5px 8px;border-left:2px solid #e88793;background:#e8879312;color:#ffc0c7;font-size:11px}.error:empty{display:none}[hidden]{display:none!important}
+  @media(max-width:720px){.filters{grid-template-columns:repeat(2,minmax(0,1fr))}.discount{grid-column:1/-1}}
+  @media(max-width:480px){.filters{grid-template-columns:1fr}.discount{grid-column:auto}.explorer{align-items:flex-start;flex-direction:column}.explorer-controls{width:100%}.explorer select{flex:1;width:auto}}
+  `;
 
   function create(actions) {
     const host = document.createElement('wm-shiny-finder'), root = host.attachShadow({ mode: 'open' });
 
-    root.innerHTML = `<style>${CSS}</style><section class="panel" aria-label="WikiMasters Shiny Finder"><header><div class="brand"><strong>SHINY <span>FINDER</span></strong></div><span class="tag" id="activity">OFF</span><button class="fold" id="fold" aria-label="Réduire le panneau" aria-expanded="true">−</button></header><div class="body" id="body"><div class="filters">
-    <div class="group"><p class="legend">01 · Prix pour miser · WB</p><div class="range"><label>Minimum<input id="minPrice" aria-label="Prix minimum" type="number" min="0" max="100000000" step="1" placeholder="0"></label><label>Maximum<input id="maxPrice" aria-label="Prix maximum" type="number" min="0" max="100000000" step="1" placeholder="Sans limite"></label></div><div class="chips"><button data-price="500,2000">500–2 000</button><button data-price=",">Tous les prix</button></div></div>
-    <div class="group"><p class="legend">02 · Temps restant · minutes</p><div class="range"><label>Minimum<input id="minMinutes" aria-label="Durée minimum" type="number" min="0" max="43200" step="0.1" placeholder="0"></label><label>Maximum<input id="maxMinutes" aria-label="Durée maximum" type="number" min="0" max="43200" step="0.1" placeholder="Sans limite"></label></div><div class="chips"><button data-time="0,5">0–5 min</button><button data-time="5,10">5–10 min</button><button data-time=",">Tout</button></div></div></div>
-    <div class="opportunities"><label class="check"><input id="dealsOnly" type="checkbox">Afficher uniquement les annonces sous la cote Toolbox</label><div class="discount"><label for="discountPreset">Décote min.</label><select id="discountPreset"><option value="0">0 %</option><option value="10">10 %</option><option value="20">20 %</option><option value="30">30 %</option><option value="custom">Personnalisé</option></select><input id="discount" type="number" aria-label="Décote personnalisée en pourcentage" min="0" max="99" step="0.1" hidden></div></div>
-    <p class="help">Cote en attente : cadre violet pointillé, carte conservée pour laisser Toolbox charger. Elle n’est pas comptée comme un résultat confirmé.</p><p class="error" id="error" role="alert"></p><p class="warning" id="nativeWarning"></p>
-    <div class="counts"><span class="count"><b id="matched">—</b>résultats</span><span class="count"><b id="total">—</b>chargées</span><span class="count"><b id="pending">—</b>en attente</span><span class="count"><b id="deals">—</b>sous la cote</span></div><p class="help" id="recognized"></p>
-    <div class="actions"><button class="primary" id="toggle">Activer les filtres</button><button class="quiet" id="reset">Réinitialiser</button><span class="spacer"></span><select id="batches" aria-label="Nombre de lots supplémentaires"><option value="2">2 lots en plus</option><option value="5">5 lots en plus</option><option value="10">10 lots en plus</option><option value="20">20 lots en plus</option></select><button id="start">Explorer</button><button id="stop" class="stop" disabled>Stop</button></div>
-    <p class="status" id="status" role="status"></p><p class="help">Exploration sur demande · 5 s minimum entre lots · 3 min maximum · arrêt en arrière-plan.</p>`;
+    root.innerHTML = `<style>${CSS}</style><section class="panel" aria-label="Filtres du marché">
+      <header><strong>Filtres du marché</strong><button class="fold" id="fold" type="button" aria-label="Réduire le panneau" aria-expanded="true">−</button></header>
+      <div class="body" id="body">
+        <div class="filters">
+          <div class="field"><span class="field-title">Prix · WB</span><div class="range">
+            <input id="minPrice" aria-label="Prix minimum" type="number" min="0" max="100000000" step="1" placeholder="Min">
+            <input id="maxPrice" aria-label="Prix maximum" type="number" min="0" max="100000000" step="1" placeholder="Max">
+          </div></div>
+          <div class="field"><span class="field-title">Temps · min</span><div class="range">
+            <input id="minMinutes" aria-label="Temps restant minimum en minutes" type="number" min="0" max="43200" step="1" placeholder="Min">
+            <input id="maxMinutes" aria-label="Temps restant maximum en minutes" type="number" min="0" max="43200" step="1" placeholder="Max">
+          </div></div>
+          <div class="discount">
+            <label class="discount-toggle"><input id="dealsOnly" type="checkbox"><span>Décote</span></label>
+            <label class="discount-value"><input id="discount" aria-label="Décote minimale en pourcentage" type="number" min="0" max="99" step="1"><span>%</span></label>
+          </div>
+        </div>
+        <div class="explorer" aria-label="Défilement automatique">
+          <strong class="explorer-title">Défilement automatique</strong>
+          <div class="explorer-controls">
+            <select id="batches" aria-label="Nombre de pages à charger"><option value="2">2 pages</option><option value="5">5 pages</option><option value="10">10 pages</option><option value="20">20 pages</option></select>
+            <button class="primary" id="start" type="button">Explorer</button>
+            <button class="stop" id="stop" type="button" disabled>Stop</button>
+          </div>
+        </div>
+        <p class="error" id="error" role="alert"></p>
+      </div>
+    </section>`;
 
-    const previewBox = document.createElement('details'); previewBox.hidden = true; previewBox.id = 'previewBox';
-    previewBox.innerHTML = '<summary id="previewTitle">Diagnostic local</summary><textarea id="previewData" readonly aria-label="Contenu à exporter" style="width:100%;height:160px;background:#0d1422;color:#dce7fa;border:1px solid #394762;border-radius:8px;padding:10px;margin:10px 0;font:11px monospace"></textarea><button id="previewDownload">Télécharger le fichier</button>';
-    root.getElementById('body').appendChild(previewBox);
     const $ = id => root.getElementById(id), text = (id, value) => { if ($(id).textContent !== String(value)) $(id).textContent = String(value); };
-    let lastState = null, custom = false;
-    for (const id of ['toggle', 'reset', 'start', 'stop']) $(id).addEventListener('click', () => actions[id]());
+    let lastState = null;
+    for (const id of ['start', 'stop']) $(id).addEventListener('click', () => actions[id]());
     $('fold').addEventListener('click', () => actions.change({ collapsed: !lastState?.prefs.collapsed }));
     $('dealsOnly').addEventListener('change', () => actions.change({ dealsOnly: $('dealsOnly').checked }));
     $('batches').addEventListener('change', () => actions.change({ batches: Number($('batches').value) }));
     for (const id of ['minPrice', 'maxPrice', 'minMinutes', 'maxMinutes', 'discount']) $(id).addEventListener('change', () => {
       if (!$(id).checkValidity()) { text('error', 'Entre une valeur valide, positive et dans les limites du champ.'); return; }
+      text('error', '');
       actions.change({ [id]: $(id).value === '' ? null : Number($(id).value) });
-    });
-    $('discountPreset').addEventListener('change', () => { custom = $('discountPreset').value === 'custom'; $('discount').hidden = !custom; if (custom) { $('discount').focus(); return; } actions.change({ discount: Number($('discountPreset').value) }); });
-    for (const button of root.querySelectorAll('[data-price],[data-time]')) button.addEventListener('click', () => {
-      const price = button.hasAttribute('data-price'), [min, max] = (price ? button.dataset.price : button.dataset.time).split(',').map(x => x === '' ? null : Number(x));
-      actions.change(price ? { minPrice: min, maxPrice: max } : { minMinutes: min, maxMinutes: max });
     });
 
     function render(state) {
-      lastState = state; const { prefs: p, stats: s, enabled } = state, filtering = enabled || p.shinyOnly;
-      $('body').hidden = p.collapsed; $('fold').setAttribute('aria-expanded', String(!p.collapsed)); $('fold').setAttribute('aria-label', p.collapsed ? 'Développer le panneau' : 'Réduire le panneau'); text('fold', p.collapsed ? '+' : '−'); text('activity', enabled ? 'ON' : p.shinyOnly ? 'LS' : 'OFF');
-      for (const id of ['minPrice', 'maxPrice', 'minMinutes', 'maxMinutes', 'discount', 'batches']) if (root.activeElement !== $(id)) $(id).value = p[id] ?? '';
-      $('dealsOnly').checked = p.dealsOnly; if (![0, 10, 20, 30].includes(p.discount)) custom = true; $('discountPreset').value = custom ? 'custom' : String(p.discount); $('discount').hidden = !custom;
-      text('toggle', enabled ? 'Désactiver les filtres' : 'Activer les filtres'); $('toggle').className = enabled ? 'active' : 'primary'; $('toggle').setAttribute('aria-pressed', String(enabled));
-      for (const id of ['matched', 'total', 'pending', 'deals']) text(id, filtering ? s[id] : '—');
-      text('recognized', enabled
-        ? `Prix reconnus : ${s.priced}/${s.total} · Durées : ${s.timed}/${s.total} · Cotes fiables : ${s.quotes}/${s.total} · Cotes inutilisables dans la sélection : ${s.unreliable}`
-        : p.shinyOnly ? 'Filtre LS indépendant actif : seules les cartes shiny sont affichées.'
-          : 'En veille : aucune annonce analysée, aucun lot chargé automatiquement.');
-      text('status', state.scan ? `Exploration · ${state.scan.done}/${state.scan.max} lots ajoutés` : state.message); text('nativeWarning', state.nativeWarning);
+      lastState = state; const { prefs: p, scan } = state;
+      $('body').hidden = p.collapsed;
+      $('fold').setAttribute('aria-expanded', String(!p.collapsed));
+      $('fold').setAttribute('aria-label', p.collapsed ? 'Développer le panneau' : 'Réduire le panneau');
+      text('fold', p.collapsed ? '+' : '−');
+      for (const id of ['minPrice', 'maxPrice', 'minMinutes', 'maxMinutes', 'discount', 'batches']) {
+        if (root.activeElement !== $(id)) $(id).value = p[id] ?? '';
+      }
+      $('dealsOnly').checked = p.dealsOnly;
       const invalid = (p.minPrice !== null && p.maxPrice !== null && p.minPrice > p.maxPrice) || (p.minMinutes !== null && p.maxMinutes !== null && p.minMinutes > p.maxMinutes);
-      text('error', invalid ? 'Le minimum dépasse le maximum : aucune annonce ne peut correspondre.' : ''); $('start').disabled = !!state.scan || invalid; $('stop').disabled = !state.scan; $('batches').disabled = !!state.scan;
+      text('error', state.error || (invalid ? 'Le minimum dépasse le maximum.' : ''));
+      $('start').disabled = !!scan || invalid;
+      $('stop').disabled = !scan;
+      $('batches').disabled = !!scan;
     }
-    function preview(title, data, download) { text('previewTitle', title); $('previewData').value = data; previewBox.hidden = false; previewBox.open = true; $('previewDownload').onclick = download; }
-    return { host, render, preview };
+    return { host, render };
   }
   globalThis.WMFinderPanel = { create };
 })();

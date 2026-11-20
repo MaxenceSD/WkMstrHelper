@@ -4,16 +4,16 @@
   if (!/^(www\.)?wiki-masters\.com$/.test(location.hostname) || globalThis.__wmFinder12) return;
   globalThis.__wmFinder12 = true;
   const C = globalThis.WMFinderCore, P = globalThis.WMFinderPanel;
-  const KEY = 'wmFinder12Prefs', WATCH_KEY = 'wmshV5Watchlist', LIMIT = 2000, DELAY = 5000, WAIT = 20000;
-  let prefs = { ...C.DEFAULTS }, enabled = false, ui = null, main = null, grid = null, tabbar = null, browse = false;
+  const KEY = 'wmFinder12Prefs', WATCH_KEY = 'wmshV5Watchlist', LIMIT = 2000;
+  let prefs = { ...C.DEFAULTS }, ui = null, main = null, grid = null, suspendedGrid = null, tabbar = null, browse = false;
   let shinyButton = null, shinyButtonGroup = null;
   let pendingNavigation = null, scan = null, disposed = false;
-  let batchTimer = null, syncTimer = null, timeTimer = null, message = 'Prêt. Active les filtres pour analyser les annonces.';
+  let batchTimer = null, syncTimer = null, timeTimer = null, errorMessage = '';
   const cards = new Map(), dirty = new Set(), added = new Set(), timeDirty = new Set();
   let removed = false, favorites = new Set();
-  const metrics = { fullScans: 0, parsed: 0, timeReads: 0, flushes: 0, loadClicks: 0, maxFlushMs: 0 };
   const rootPath = () => /^\/marketplace\/?$/.test(location.pathname);
-  const filteringActive = () => enabled || prefs.shinyOnly;
+  const filteringActive = () => (prefs.shinyOnly || prefs.minPrice !== null || prefs.maxPrice !== null ||
+    prefs.minMinutes !== null || prefs.maxMinutes !== null || prefs.dealsOnly) && (!suspendedGrid || suspendedGrid !== grid);
   const timeActive = () => prefs.minMinutes !== null || prefs.maxMinutes !== null;
   const visible = el => !!el?.isConnected && !el.closest('[hidden],[aria-hidden="true"]') && !!el.getClientRects().length;
   const own = el => !!el?.closest?.('wm-shiny-finder,button[data-wm-shiny-filter]');
@@ -26,13 +26,12 @@
   function clearMark(card) { card.root.removeAttribute('data-wmsf-hidden'); card.root.removeAttribute('data-wmsf-state'); }
   async function save() {
     try { await chrome.storage.local.set({ [KEY]: prefs, [WATCH_KEY]: [...favorites].slice(0, 1000) }); }
-    catch { message = 'Sauvegarde indisponible. Réglages conservés dans cet onglet seulement.'; render(); }
+    catch { errorMessage = 'Sauvegarde indisponible. Réglages conservés dans cet onglet seulement.'; render(); }
   }
 
-  function stopScan(reason) {
+  function stopScan() {
     if (!scan) return;
     const old = scan; scan = null; old.abort.abort();
-    if (reason) message = reason;
     render();
   }
 
@@ -43,8 +42,8 @@
     cards.clear();
   }
 
-  function suspend(reason) {
-    stopScan(reason); stopWork(); browse = false;
+  function suspend() {
+    stopScan(); stopWork(); browse = false; suspendedGrid = null;
     if (ui) { ui.host.remove(); ui = null; }
     if (shinyButtonGroup) shinyButtonGroup.removeAttribute('data-wm-rarity-group');
     if (shinyButton) { shinyButton.remove(); shinyButton = null; shinyButtonGroup = null; }
@@ -83,9 +82,9 @@
   }
 
   function sync() {
-    syncTimer = null; if (disposed) return;
+    syncTimer = null; if (disposed || document.hidden) return;
     observeMain(); const view = activeView();
-    if (!view) { suspend('Exploration arrêtée : sortie de Parcourir ou onglet masqué.'); return; }
+    if (!view) { suspend(); return; }
     browse = true;
     ensureShinyButton(view.scope);
     if (tabbar !== view.bar) {
@@ -95,14 +94,14 @@
     if (!ui?.host.isConnected) {
       if (ui) ui.host.remove();
       ui = P.create({
-        change: onSettings, toggle: toggleEnabled, reset, start: startScan, stop: () => stopScan('Exploration arrêtée.'),
-        favorite: toggleFavorite
+        change: onSettings, start: startScan, stop: stopScan
       });
       tabbar.insertAdjacentElement('afterend', ui.host);
     }
     if (grid !== view.grid) {
-      stopScan('Exploration arrêtée : la liste du marché a changé.');
-      stopWork(); grid = view.grid; if (filteringActive() && grid) activateGrid();
+      stopScan();
+      stopWork(); grid = view.grid; suspendedGrid = null; errorMessage = '';
+      if (filteringActive() && grid) activateGrid();
     } else if (filteringActive() && grid && !cards.size) activateGrid();
     updateTimeTimer(); render();
   }
@@ -115,14 +114,14 @@
   }
 
   function apply(card) {
-    card.result = C.evaluate(card, enabled ? prefs : { ...C.DEFAULTS, shinyOnly: true });
+    card.result = C.evaluate(card, prefs);
     setAttr(card.root, 'data-wmsf-hidden', card.result.match || card.result.pending ? null : 'true');
     setAttr(card.root, 'data-wmsf-state', card.result.state === 'deal' || card.result.pending ? card.result.state : null);
   }
 
   function readCard(anchor) {
     if (!grid?.contains(anchor)) return;
-    const previous = cards.get(anchor), card = C.read(anchor, location.origin); metrics.parsed++;
+    const previous = cards.get(anchor), card = C.read(anchor, location.origin);
     if (!card) { if (previous) clearMark(previous); cards.delete(anchor); return; }
     card.root = rootOf(anchor); if (previous && previous.root !== card.root) clearMark(previous);
     cards.set(anchor, card); apply(card);
@@ -132,10 +131,10 @@
     if (!filteringActive() || !browse || !grid || document.hidden) return;
     const anchors = grid.querySelectorAll(C.LINK);
     if (anchors.length > LIMIT) {
-      enabled = false; prefs = C.settings({ ...prefs, shinyOnly: false }); save();
-      message = `Limite de ${LIMIT} annonces atteinte. Filtres suspendus.`; render(); return;
+      suspendedGrid = grid; errorMessage = `Filtres suspendus : plus de ${LIMIT} annonces chargées.`;
+      stopWork(); render(); return;
     }
-    metrics.fullScans++; for (const a of anchors) readCard(a);
+    for (const a of anchors) readCard(a);
     gridObserver.observe(grid, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'href', 'data-shiny', 'data-is-shiny'] });
     updateTimeTimer(); render();
   }
@@ -149,7 +148,6 @@
   function flush() {
     clearTimeout(batchTimer); batchTimer = null;
     if (!filteringActive() || !browse || document.hidden || !rootPath() || !grid?.isConnected) return;
-    const begin = performance.now(); metrics.flushes++;
     if (removed) { for (const [a, c] of cards) if (!grid.contains(a)) { clearMark(c); cards.delete(a); } removed = false; }
     for (const node of added) {
       if (!grid.contains(node)) continue;
@@ -158,20 +156,18 @@
     }
     added.clear();
     if (cards.size + [...dirty].filter(a => !cards.has(a)).length > LIMIT) {
-      stopScan('Limite de mémoire atteinte.'); enabled = false;
-      prefs = C.settings({ ...prefs, shinyOnly: false }); save(); stopWork();
-      message = `Plus de ${LIMIT} annonces : filtres suspendus.`; render(); return;
+      suspendedGrid = grid; errorMessage = `Filtres suspendus : plus de ${LIMIT} annonces chargées.`;
+      stopWork(); render(); return;
     }
     for (const a of dirty) readCard(a);
     for (const a of timeDirty) {
       if (dirty.has(a)) continue;
       const c = cards.get(a); if (!c || !grid.contains(a)) continue;
       c.seconds = c.fields.time && !c.fields.time.ambiguous ? C.seconds(c.fields.time.value.textContent) : null;
-      metrics.timeReads++; apply(c);
+      apply(c);
     }
     dirty.clear(); timeDirty.clear();
-    if (scan?.check) scan.check();
-    render(); metrics.maxFlushMs = Math.max(metrics.maxFlushMs, performance.now() - begin);
+    render();
   }
 
   const gridObserver = new MutationObserver(records => {
@@ -201,7 +197,7 @@
 
   const shellObserver = new MutationObserver(scheduleSync), tabsObserver = new MutationObserver(scheduleSync);
   function updateTimeTimer() {
-    const needed = enabled && browse && grid && timeActive() && !document.hidden;
+    const needed = filteringActive() && browse && grid && timeActive() && !document.hidden;
     if (!needed && timeTimer !== null) { clearInterval(timeTimer); timeTimer = null; }
     if (needed && timeTimer === null) timeTimer = setInterval(() => {
       // Re-read cached fields only; never guess time from the wall clock.
@@ -211,23 +207,19 @@
   }
 
   function onSettings(patch) {
-    const onlyFold = Object.keys(patch).every(k => k === 'collapsed'); prefs = C.settings({ ...prefs, ...patch }); save();
-    if (!onlyFold && enabled && browse) { for (const a of cards.keys()) dirty.add(a); flush(); updateTimeTimer(); }
-    render();
-  }
-
-  function refreshFilters() {
-    if (!filteringActive()) {
-      stopScan('Exploration arrêtée : aucun filtre actif.');
-      stopWork();
+    const filterChanged = Object.keys(patch).some(key => !['collapsed', 'batches'].includes(key));
+    prefs = C.settings({ ...prefs, ...patch }); save();
+    if (filterChanged) {
+      suspendedGrid = null;
+      errorMessage = '';
+      if (filteringActive()) {
+        if (browse && grid) {
+          if (cards.size) { for (const a of cards.keys()) dirty.add(a); flush(); }
+          else activateGrid();
+        }
+      } else stopWork();
       updateTimeTimer();
-      render();
-      return;
     }
-    if (!browse || !grid) { render(); return; }
-    if (!cards.size) { activateGrid(); return; }
-    for (const card of cards.values()) apply(card);
-    updateTimeTimer();
     render();
   }
 
@@ -264,153 +256,118 @@
   }
 
   function toggleShinyFilter() {
-    prefs = C.settings({ ...prefs, shinyOnly: !prefs.shinyOnly });
-    save();
-    message = prefs.shinyOnly
-      ? 'Filtre LS activé : seules les cartes shiny sont affichées.'
-      : enabled ? 'Filtre LS désactivé.' : 'Filtre LS désactivé. Les annonces sont restaurées.';
-    refreshFilters();
-  }
-
-  function toggleEnabled() {
-    enabled = !enabled;
-    if (enabled) {
-      message = 'Filtres actifs sur les annonces chargées.';
-      sync();
-      for (const card of cards.values()) apply(card);
-      render();
-    }
-    else {
-      if (filteringActive()) {
-        for (const card of cards.values()) apply(card);
-        updateTimeTimer();
-      } else {
-        stopScan('Exploration arrêtée.');
-        stopWork();
-      }
-      message = prefs.shinyOnly
-        ? 'Filtres classiques désactivés. Le filtre LS reste actif.'
-        : 'Filtres désactivés. Toutes les annonces sont restaurées.';
-      render();
-    }
-  }
-
-  function reset() {
-    stopScan(); enabled = false; stopWork(); prefs = { ...C.DEFAULTS, collapsed: prefs.collapsed }; save();
-    message = 'Réglages réinitialisés. Filtres désactivés.'; render();
-  }
-
-  function stats() {
-    const s = { total: cards.size, matched: 0, pending: 0, priced: 0, timed: 0, quotes: 0, deals: 0, unreliable: 0, shiny: 0 };
-    const unique = new Set();
-    for (const c of cards.values()) {
-      if (!unique.has(c.id)) { if (c.result.match) s.matched++; if (c.result.pending) s.pending++; if (c.result.state === 'deal') s.deals++; unique.add(c.id); }
-      if (c.price !== null) s.priced++;
-      if (c.seconds !== null) s.timed++; if (c.quote.state === 'ready') s.quotes++;
-      if (c.result.state === 'unreliable') s.unreliable++; if (c.shiny) s.shiny++;
-    }
-    return s;
-  }
-
-  function results() {
-    const found = new Map(); for (const c of cards.values()) if (c.result.match && !found.has(c.id)) found.set(c.id, c);
-    return [...found.values()];
-  }
-
-  function nativeWarning() {
-    if (!main || !browse) return '';
-    const active = [...main.querySelectorAll('button')].some(b => C.RARITIES.includes(b.textContent.trim()) && (b.classList.contains('ring-2') || b.getAttribute('aria-pressed') === 'true'));
-    const search = main.querySelector('input[type="search"],input[placeholder*="Rechercher"]');
-    return active || search?.value ? 'Un filtre natif du marché est actif. « Toutes les cartes » couvre les annonces chargées : efface aussi la recherche et les raretés du site pour élargir le marché.' : '';
+    onSettings({ shinyOnly: !prefs.shinyOnly });
   }
 
   function render() {
     updateShinyButton();
-    if (ui) ui.render({
-      prefs, enabled, stats: stats(), message, nativeWarning: nativeWarning(), scan: scan ? { done: scan.done, max: scan.max } : null,
-      results: results().slice(0, 100), favorites
-    });
+    if (ui) ui.render({ prefs, scan: !!scan, error: errorMessage });
+  }
+
+  function loadButtons() {
+    if (!browse || !main) return [];
+    return [...main.querySelectorAll('button')].filter(button =>
+      !own(button) && C.clean(button.textContent) === 'Charger la suite' &&
+      !button.closest('[role="dialog"],[aria-modal="true"]') && visible(button));
   }
 
   function loadButton() {
-    if (!browse || !main) return null;
-    const buttons = [...main.querySelectorAll('button')].filter(b => !own(b) && C.clean(b.textContent) === 'Charger la suite' &&
-      !b.closest('[role="dialog"],[aria-modal="true"]') && visible(b) && !b.disabled && b.getAttribute('aria-disabled') !== 'true');
+    const buttons = loadButtons().filter(button => !button.disabled && button.getAttribute('aria-disabled') !== 'true');
     return buttons.length === 1 ? buttons[0] : null;
   }
 
-  function delay(ms, signal) {
+  function waitNew(run, known, previousCount, clickedButton) {
     return new Promise(resolve => {
-      if (signal.aborted) { resolve(false); return; }
-      const onAbort = () => { clearTimeout(timer); resolve(false); };
-      const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve(true); }, ms);
-      signal.addEventListener('abort', onAbort, { once: true });
-    });
-  }
-
-  function waitNew(run, known) {
-    return new Promise(resolve => {
-      let timer;
-      const finish = value => { clearTimeout(timer); run.abort.signal.removeEventListener('abort', onAbort); run.check = null; resolve(value); };
+      let timer = null, finished = false, sawLoading = false;
+      const observer = new MutationObserver(check);
+      const finish = loaded => {
+        if (finished) return;
+        finished = true; clearTimeout(timer); observer.disconnect();
+        run.abort.signal.removeEventListener('abort', onAbort); resolve(loaded);
+      };
       const onAbort = () => finish(false);
-      run.check = () => { if ([...cards.values()].some(c => !known.has(c.id))) finish(true); };
-      timer = setTimeout(() => finish(false), WAIT); run.abort.signal.addEventListener('abort', onAbort, { once: true }); run.check();
+      function check() {
+        if (!grid?.isConnected) { finish(false); return; }
+        const anchors = [...grid.querySelectorAll(C.LINK)];
+        const hasNewCard = anchors.length > previousCount || anchors.some(anchor => {
+          const id = C.identity(anchor, location.origin);
+          return id && !known.has(id);
+        });
+        const buttons = loadButtons();
+        const loading = buttons.some(button => button.disabled || button.getAttribute('aria-disabled') === 'true');
+        if (!clickedButton.isConnected || clickedButton.disabled || clickedButton.getAttribute('aria-disabled') === 'true' || loading) {
+          sawLoading = true;
+        }
+        if (sawLoading && buttons.some(button => !button.disabled && button.getAttribute('aria-disabled') !== 'true')) {
+          finish(true); return;
+        }
+        if (hasNewCard && !loading) {
+          clearTimeout(timer);
+          timer = setTimeout(() => finish(true), 120);
+        } else clearTimeout(timer);
+      }
+      if (!grid?.isConnected || !main) { resolve(false); return; }
+      observer.observe(main, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'aria-disabled', 'class'] });
+      run.abort.signal.addEventListener('abort', onAbort, { once: true });
+      check();
     });
   }
 
   async function startScan() {
-    if (scan || !browse || document.hidden) return;
-    if (!filteringActive()) { enabled = true; message = 'Filtres actifs.'; sync(); }
-    if (!filteringActive() || !grid) { message = 'Aucune grille reconnue. Aucun chargement lancé.'; render(); return; }
-    const run = { abort: new AbortController(), max: prefs.batches, done: 0, started: Date.now(), check: null }; scan = run; message = 'Exploration en cours…'; render();
-    const deadline = setTimeout(() => { if (scan === run) stopScan('Arrêt après 3 minutes maximum.'); }, 180000);
+    if (scan || !browse || document.hidden || !grid) return;
+    const run = { abort: new AbortController(), max: prefs.batches, done: 0 }; scan = run;
+    errorMessage = ''; render();
     try {
-      // Count additional lots; never count the initial lot as a new load.
       for (let i = 0; i < run.max; i++) {
-        if (!await delay(DELAY, run.abort.signal)) break;
-        if (scan !== run || !activeView() || document.hidden || !filteringActive()) break;
-        if (Date.now() - run.started > 180000) { message = 'Arrêt après 3 minutes maximum.'; break; }
-        const button = loadButton(); if (!button) { message = 'Fin de l’exploration : aucun bouton « Charger la suite » disponible.'; break; }
-        const known = new Set([...cards.values()].map(c => c.id)), waiting = waitNew(run, known);
-        metrics.loadClicks++; button.click();
-        if (!await waiting) { if (scan === run) message = 'Chargement non confirmé en 20 s. Arrêt sans nouvelle tentative automatique.'; break; }
-        if (scan !== run) break;
-        run.done++; message = `${run.done} / ${run.max} lots supplémentaires chargés.`; render();
+        if (scan !== run || !browse || !grid?.isConnected) break;
+        const button = loadButton();
+        if (!button) {
+          if (!run.done) errorMessage = 'Aucune page supplémentaire disponible.';
+          break;
+        }
+        const anchors = [...grid.querySelectorAll(C.LINK)];
+        const known = new Set(anchors.map(anchor => C.identity(anchor, location.origin)).filter(Boolean));
+        const waiting = waitNew(run, known, anchors.length, button);
+        button.click();
+        if (!await waiting || scan !== run) break;
+        run.done++;
+        render();
       }
-    } catch { if (scan === run) message = 'Exploration interrompue : le marché a changé.'; }
-    finally { clearTimeout(deadline); run.abort.abort(); if (scan === run) { scan = null; render(); } }
+    } catch {
+      if (scan === run) errorMessage = 'Exploration interrompue : le marché a changé.';
+    } finally {
+      if (scan === run) { scan = null; render(); }
+    }
   }
-
-  function toggleFavorite(id) { if (favorites.has(id)) favorites.delete(id); else if (favorites.size < 1000) favorites.add(id); save(); render(); }
 
   document.addEventListener('click', event => {
     const target = event.target instanceof Element ? event.target.closest('button,a,[role="tab"]') : null;
     if (!target || own(target)) return;
     const kind = C.tabName(target.textContent);
-    if (rootPath() && kind) { pendingNavigation = { kind }; suspend('Exploration arrêtée : changement d’onglet.'); scheduleSync(); return; }
+    if (rootPath() && kind) { pendingNavigation = { kind }; suspend(); scheduleSync(); return; }
     if (target.tagName === 'A') try {
       const url = new URL(target.href, location.href);
       if (url.origin === location.origin && url.pathname !== location.pathname && target.target !== '_blank' && !event.ctrlKey && !event.metaKey) {
-        pendingNavigation = { path: url.pathname }; suspend('Exploration arrêtée : navigation.'); scheduleSync();
+        pendingNavigation = { path: url.pathname }; suspend(); scheduleSync();
       }
     } catch { }
     if (rootPath() && target.closest('main')) scheduleSync();
   }, true);
 
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { stopScan('Exploration arrêtée : onglet en arrière-plan.'); gridObserver.disconnect(); clearInterval(timeTimer); timeTimer = null; clearTimeout(batchTimer); batchTimer = null; }
+    if (document.hidden) { gridObserver.disconnect(); clearInterval(timeTimer); timeTimer = null; clearTimeout(batchTimer); batchTimer = null; }
     else { stopWork(); scheduleSync(); }
   });
 
-  document.addEventListener('change', e => { if (!own(e.target) && rootPath()) { stopScan('Exploration arrêtée : tri ou filtre natif modifié.'); scheduleSync(); } }, true);
+  document.addEventListener('change', e => { if (!own(e.target) && rootPath()) { stopScan(); scheduleSync(); } }, true);
 
-  window.addEventListener('popstate', () => { pendingNavigation = null; suspend('Exploration arrêtée : navigation.'); scheduleSync(); });
+  window.addEventListener('popstate', () => { pendingNavigation = null; suspend(); scheduleSync(); });
 
-  if (window.navigation) window.navigation.addEventListener('currententrychange', () => { pendingNavigation = null; suspend('Exploration arrêtée : navigation.'); scheduleSync(); });
+  if (window.navigation) window.navigation.addEventListener('currententrychange', () => { pendingNavigation = null; suspend(); scheduleSync(); });
 
   window.addEventListener('pagehide', () => { stopScan(); stopWork(); pageObserver.disconnect(); tabsObserver.disconnect(); shellObserver.disconnect(); clearTimeout(syncTimer); syncTimer = null; disposed = true; });
 
-  window.addEventListener('pageshow', () => { if (disposed) { disposed = false; enabled = false; main = null; tabbar = null; startObservers(); scheduleSync(); } });
+  window.addEventListener('pageshow', () => { if (disposed) { disposed = false; main = null; tabbar = null; startObservers(); scheduleSync(); } });
 
   function startObservers() {
     shellObserver.observe(document.body, { childList: true });
@@ -424,8 +381,8 @@
       favorites = new Set((Array.isArray(saved[WATCH_KEY]) ? saved[WATCH_KEY] : []).filter(x => typeof x === 'string').map(x => {
         try { return new URL(x, location.origin).pathname; } catch { return ''; }
       }).filter(x => /^\/marketplace\/[^/]+$/.test(x)).slice(0, 1000));
-    } catch { message = 'Sauvegarde indisponible ; réglages par défaut dans cet onglet.'; }
-    // Ignore legacy filters and scan-session keys. Activation is never persisted.
+    } catch { errorMessage = 'Sauvegarde indisponible. Réglages par défaut dans cet onglet.'; }
+    // Ignore legacy filters and scan-session keys.
     startObservers(); sync();
   }
 
