@@ -238,7 +238,7 @@
     if (shinyButton) shinyButton.remove();
     shinyButton = document.createElement('button');
     shinyButton.type = 'button';
-    shinyButton.textContent = 'LS';
+    shinyButton.textContent = 'L✦';
     shinyButton.setAttribute('data-wm-shiny-filter', '');
     shinyButton.setAttribute('aria-label', 'Afficher uniquement les cartes shiny');
     shinyButton.setAttribute('aria-pressed', 'false');
@@ -343,6 +343,9 @@
   document.addEventListener('click', event => {
     const target = event.target instanceof Element ? event.target.closest('button,a,[role="tab"]') : null;
     if (!target || own(target)) return;
+    if (rootPath() && target.tagName === 'BUTTON' && C.norm(target.textContent) === 'reinitialiser' && prefs.shinyOnly) {
+      onSettings({ shinyOnly: false });
+    }
     const kind = C.tabName(target.textContent);
     if (rootPath() && kind) { pendingNavigation = { kind }; suspend(); scheduleSync(); return; }
     if (target.tagName === 'A') try {
