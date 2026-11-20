@@ -8,7 +8,7 @@
   const RARITIES = ['C', 'PC', 'R', 'SR', 'UR', 'L'];
   const FRAME = '.glow-c,.glow-pc,.glow-r,.glow-sr,.glow-ur,.glow-l,.shiny-card,.glow-shiny';
   const LINK = 'a.card-frame[href]';
-  const DEFAULTS = Object.freeze({rarity:'all', minPrice:null, maxPrice:null, minMinutes:null, maxMinutes:null,
+  const DEFAULTS = Object.freeze({shinyOnly:false, minPrice:null, maxPrice:null, minMinutes:null, maxMinutes:null,
     dealsOnly:false, discount:0, batches:5, collapsed:false});
   const clean = value => String(value ?? '').replace(/[\u00a0\u202f]/g, ' ').replace(/\s+/g,' ').trim();
   const norm = value => clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
@@ -19,7 +19,7 @@
   }
   function settings(value = {}) {
     const p = value && typeof value === 'object' ? value : {};
-    return {rarity:['all','shiny',...RARITIES].includes(p.rarity) ? p.rarity : 'all',
+    return {shinyOnly:p.shinyOnly === true || p.rarity === 'shiny',
       minPrice:number(p.minPrice), maxPrice:number(p.maxPrice), minMinutes:number(p.minMinutes,43200), maxMinutes:number(p.maxMinutes,43200),
       dealsOnly:p.dealsOnly === true, discount:number(p.discount,99) ?? 0,
       batches:[2,5,10,20].includes(p.batches) ? p.batches : 5, collapsed:p.collapsed === true};
@@ -111,7 +111,7 @@
     return (min===null && max===null) || (value!==null && (min===null || value>=min) && (max===null || value<=max));
   }
   function evaluate(card,p) {
-    const rare=p.rarity==='all' || (p.rarity==='shiny' ? card.shiny : card.rarity===p.rarity && (p.rarity!=='L' || !card.shiny));
+    const rare = !p.shinyOnly || card.shiny;
     const time=inRange(card.seconds,p.minMinutes===null?null:p.minMinutes*60,p.maxMinutes===null?null:p.maxMinutes*60);
     const basic=rare && inRange(card.price,p.minPrice,p.maxPrice) && time;
     if (!basic) return {state:'excluded',match:false,pending:false,discount:null};

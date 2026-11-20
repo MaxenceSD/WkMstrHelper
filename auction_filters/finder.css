@@ -1,0 +1,16 @@
+/* Only extension-owned attributes affect listings. Toolbox classes are untouched. */
+[data-wmsf-hidden="true"]{display:none!important}
+[data-wmsf-state="deal"]>a.card-frame,a.card-frame[data-wmsf-state="deal"]{outline:2px solid #67dcb0;outline-offset:2px}
+[data-wmsf-state="pending"]>a.card-frame,a.card-frame[data-wmsf-state="pending"]{outline:1px dashed #a998dd;outline-offset:2px}
+wm-shiny-finder{display:block;width:100%;margin:16px 0;position:relative;z-index:1}
+div[data-wm-rarity-group]>button:not([data-wm-shiny-filter]){border:1px solid currentColor!important;border-radius:9999px!important;padding:4px 12px!important;font-weight:750!important;letter-spacing:.025em!important;box-shadow:inset 0 1px #ffffff38!important;transition:opacity .2s,box-shadow .2s,transform .2s,filter .2s!important}
+div[data-wm-rarity-group]>button:not([data-wm-shiny-filter]):not(.ring-2):not([aria-pressed="true"]){opacity:.68!important;filter:saturate(.8)}
+div[data-wm-rarity-group]>button:not([data-wm-shiny-filter]):is(.ring-2,[aria-pressed="true"]){opacity:1!important;filter:saturate(1.18);box-shadow:0 0 0 2px #ffffff75,0 3px 8px #0005,inset 0 1px #ffffff65!important}
+div[data-wm-rarity-group]>button:not([data-wm-shiny-filter]):hover{opacity:1!important;transform:translateY(-1px);filter:saturate(1.2)}
+button[data-wm-shiny-filter]{position:relative;isolation:isolate;display:inline-flex;align-items:center;cursor:pointer;border:1px solid transparent!important;border-radius:9999px!important;padding:4px 12px!important;color:transparent!important;-webkit-text-fill-color:transparent!important;font-size:12px!important;font-weight:800!important;letter-spacing:.04em!important;background-color:transparent!important;background-image:linear-gradient(115deg,#c44dff,#ff67c8 24%,#ffcf70 48%,#73ebd5 72%,#7d9dff)!important;background-size:250% 250%!important;background-clip:text!important;-webkit-background-clip:text!important;box-shadow:0 0 0 transparent!important;transition:opacity .2s,box-shadow .2s,transform .2s!important;animation:wm-shiny-gradient 6s ease infinite}
+button[data-wm-shiny-filter]::before{content:"";position:absolute;inset:-1px;z-index:-1;padding:1px;border-radius:inherit;pointer-events:none;background:linear-gradient(115deg,#c44dff,#ff67c8 24%,#ffcf70 48%,#73ebd5 72%,#7d9dff);background-size:250% 250%;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);mask-composite:exclude;animation:wm-shiny-gradient 6s ease infinite}
+button[data-wm-shiny-filter][aria-pressed="false"]{opacity:.76}
+button[data-wm-shiny-filter][aria-pressed="true"]{opacity:1;box-shadow:0 0 0 1px #ffffff8a,0 0 12px #ec78ff!important}
+button[data-wm-shiny-filter]:hover{opacity:1;transform:translateY(-1px);filter:saturate(1.2)}
+@keyframes wm-shiny-gradient{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+@media(prefers-reduced-motion:reduce){button[data-wm-shiny-filter],button[data-wm-shiny-filter]::before{animation:none}}

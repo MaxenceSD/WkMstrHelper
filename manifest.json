@@ -25,16 +25,16 @@
         "https://wiki-masters.com/*"
       ],
       "css": [
-        "finder/finder.css",
+        "auction_filters/finder.css",
         "quick-market/content.css",
         "quick-market/modal.css",
         "quick-auction/style.css"
       ],
       "js": [
         "opener/content.js",
-        "finder/core.js",
-        "finder/panel.js",
-        "finder/finder.js",
+        "auction_filters/core.js",
+        "auction_filters/panel.js",
+        "auction_filters/finder.js",
         "buyer/content.js",
         "quick-market/storage.js",
         "quick-market/api.js",
