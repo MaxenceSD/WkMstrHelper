@@ -25,7 +25,9 @@
 
   function clearMark(card) { card.root.removeAttribute('data-wmsf-hidden'); card.root.removeAttribute('data-wmsf-state'); }
   async function save() {
-    try { await chrome.storage.local.set({ [KEY]: prefs, [WATCH_KEY]: [...favorites].slice(0, 1000) }); }
+    const storedPrefs = { ...prefs };
+    delete storedPrefs.shinyOnly;
+    try { await chrome.storage.local.set({ [KEY]: storedPrefs, [WATCH_KEY]: [...favorites].slice(0, 1000) }); }
     catch { errorMessage = 'Sauvegarde indisponible. Réglages conservés dans cet onglet seulement.'; render(); }
   }
 
@@ -259,6 +261,10 @@
     onSettings({ shinyOnly: !prefs.shinyOnly });
   }
 
+  function clearShinyFilter() {
+    if (prefs.shinyOnly) onSettings({ shinyOnly: false });
+  }
+
   function render() {
     updateShinyButton();
     if (ui) ui.render({ prefs, scan: !!scan, error: errorMessage });
@@ -351,7 +357,7 @@
     if (target.tagName === 'A') try {
       const url = new URL(target.href, location.href);
       if (url.origin === location.origin && url.pathname !== location.pathname && target.target !== '_blank' && !event.ctrlKey && !event.metaKey) {
-        pendingNavigation = { path: url.pathname }; suspend(); scheduleSync();
+        pendingNavigation = { path: url.pathname }; clearShinyFilter(); suspend(); scheduleSync();
       }
     } catch { }
     if (rootPath() && target.closest('main')) scheduleSync();
@@ -364,11 +370,15 @@
 
   document.addEventListener('change', e => { if (!own(e.target) && rootPath()) { stopScan(); scheduleSync(); } }, true);
 
-  window.addEventListener('popstate', () => { pendingNavigation = null; suspend(); scheduleSync(); });
+  window.addEventListener('popstate', () => { pendingNavigation = null; clearShinyFilter(); suspend(); scheduleSync(); });
 
-  if (window.navigation) window.navigation.addEventListener('currententrychange', () => { pendingNavigation = null; suspend(); scheduleSync(); });
+  if (window.navigation) window.navigation.addEventListener('currententrychange', () => { pendingNavigation = null; clearShinyFilter(); suspend(); scheduleSync(); });
 
-  window.addEventListener('pagehide', () => { stopScan(); stopWork(); pageObserver.disconnect(); tabsObserver.disconnect(); shellObserver.disconnect(); clearTimeout(syncTimer); syncTimer = null; disposed = true; });
+  window.addEventListener('pagehide', () => {
+    clearShinyFilter();
+    stopScan(); stopWork(); pageObserver.disconnect(); tabsObserver.disconnect(); shellObserver.disconnect();
+    clearTimeout(syncTimer); syncTimer = null; disposed = true;
+  });
 
   window.addEventListener('pageshow', () => { if (disposed) { disposed = false; main = null; tabbar = null; startObservers(); scheduleSync(); } });
 
@@ -380,10 +390,13 @@
 
   async function init() {
     try {
-      const saved = await chrome.storage.local.get([KEY, WATCH_KEY]); prefs = C.settings(saved[KEY]);
+      const saved = await chrome.storage.local.get([KEY, WATCH_KEY]);
+      const loadedPrefs = C.settings(saved[KEY]);
+      prefs = { ...loadedPrefs, shinyOnly: false };
       favorites = new Set((Array.isArray(saved[WATCH_KEY]) ? saved[WATCH_KEY] : []).filter(x => typeof x === 'string').map(x => {
         try { return new URL(x, location.origin).pathname; } catch { return ''; }
       }).filter(x => /^\/marketplace\/[^/]+$/.test(x)).slice(0, 1000));
+      if (loadedPrefs.shinyOnly) await save();
     } catch { errorMessage = 'Sauvegarde indisponible. Réglages par défaut dans cet onglet.'; }
     // Ignore legacy filters and scan-session keys.
     startObservers(); sync();
