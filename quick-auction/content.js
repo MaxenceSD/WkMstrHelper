@@ -6,6 +6,7 @@
     const CARD_SELECTOR = '[id^="marketplace-auction-"]';
     const PANEL_CLASS = "wkm-qa-panel";
     const SALES_TOTAL_ATTRIBUTE = "data-wkm-sales-total";
+    const BIDS_TOTAL_ATTRIBUTE = "data-wkm-bids-total";
 
     // Évite les doubles injections du module.
     if (window[CONTROLLER_KEY]) {
@@ -13,11 +14,11 @@
     }
 
     let observer = null;
-    let salesTotalTimer = null;
+    let auctionTabTotalTimer = null;
 
-    function scheduleSalesTotalUpdate() {
-        clearTimeout(salesTotalTimer);
-        salesTotalTimer = setTimeout(updateSalesTabTotal, 100);
+    function scheduleAuctionTabTotalUpdate() {
+        clearTimeout(auctionTabTotalTimer);
+        auctionTabTotalTimer = setTimeout(updateAuctionTabTotal, 100);
     }
 
     /**
@@ -34,6 +35,12 @@
         return [...document.querySelectorAll(
             "div.flex.overflow-x-auto.border-b button"
         )].find(button => /^Mes ventes(?:\s|\(|$)/.test(button.textContent.trim())) || null;
+    }
+
+    function findBidsTab() {
+        return [...document.querySelectorAll(
+            "div.flex.overflow-x-auto.border-b button"
+        )].find(button => /^Mes enchères(?:\s|\(|$)/.test(button.textContent.trim())) || null;
     }
 
     function getDisplayedAuctionPrice(card) {
@@ -54,9 +61,9 @@
         return parseAmount(currentBidLabel) ?? parseAmount(startingBidLabel);
     }
 
-    function createSalesTotalIndicator() {
+    function createTotalIndicator(attribute) {
         const indicator = document.createElement("span");
-        indicator.setAttribute(SALES_TOTAL_ATTRIBUTE, "");
+        indicator.setAttribute(attribute, "");
         indicator.style.cssText = `
             display: inline-flex;
             align-items: center;
@@ -89,35 +96,18 @@
         return indicator;
     }
 
-    function updateSalesTabTotal() {
-        const salesTab = findSalesTab();
-
-        if (!salesTab?.classList.contains("border-b-2")) return;
-
-        const cardElements = [...document.querySelectorAll(CARD_SELECTOR)];
-        const expectedCount = Number(
-            salesTab.textContent.match(/\((\d+)\s*\/\s*\d+\)/)?.[1]
-        );
-
-        if (
-            Number.isFinite(expectedCount) &&
-            expectedCount > 0 &&
-            cardElements.length < expectedCount
-        ) {
-            return;
-        }
-
+    function updateTotalIndicator(tab, attribute, cardElements) {
         const prices = cardElements.map(getDisplayedAuctionPrice);
 
         if (prices.some(amount => amount === null)) return;
 
         const total = prices.reduce((sum, amount) => sum + amount, 0);
 
-        let indicator = salesTab.querySelector(`[${SALES_TOTAL_ATTRIBUTE}]`);
+        let indicator = tab.querySelector(`[${attribute}]`);
 
         if (!indicator) {
-            indicator = createSalesTotalIndicator();
-            salesTab.appendChild(indicator);
+            indicator = createTotalIndicator(attribute);
+            tab.appendChild(indicator);
         }
 
         const formattedTotal = new Intl.NumberFormat("fr-FR").format(total);
@@ -129,6 +119,49 @@
                 indicator.appendChild(document.createTextNode(formattedTotal));
             }
         }
+    }
+
+    function updateAuctionTabTotal() {
+        const cardElements = [...document.querySelectorAll(CARD_SELECTOR)];
+        const salesTab = findSalesTab();
+
+        if (salesTab?.classList.contains("border-b-2")) {
+            const expectedCount = Number(
+                salesTab.textContent.match(/\((\d+)\s*\/\s*\d+\)/)?.[1]
+            );
+
+            if (
+                Number.isFinite(expectedCount) &&
+                expectedCount > 0 &&
+                cardElements.length < expectedCount
+            ) {
+                return;
+            }
+
+            updateTotalIndicator(salesTab, SALES_TOTAL_ATTRIBUTE, cardElements);
+            return;
+        }
+
+        const bidsTab = findBidsTab();
+        if (!bidsTab?.classList.contains("border-b-2")) return;
+
+        const expectedCount = Number(
+            bidsTab.textContent.match(/\((\d+)\)/)?.[1]
+        );
+        if (
+            Number.isFinite(expectedCount) &&
+            expectedCount > 0 &&
+            cardElements.length < expectedCount
+        ) {
+            return;
+        }
+
+        const leadingCards = cardElements.filter(card =>
+            [...card.querySelectorAll("span")].some(
+                element => element.textContent.trim() === "Vous menez"
+            )
+        );
+        updateTotalIndicator(bidsTab, BIDS_TOTAL_ATTRIBUTE, leadingCards);
     }
 
     function isBrowseTabActive() {
@@ -557,7 +590,7 @@
             return;
         }
 
-        scheduleSalesTotalUpdate();
+        scheduleAuctionTabTotalUpdate();
 
         // Dans les autres onglets, on retire tous les panneaux.
         if (!isBrowseTabActive()) {
@@ -579,7 +612,7 @@
      */
     function destroy() {
         observer?.disconnect();
-        clearTimeout(salesTotalTimer);
+        clearTimeout(auctionTabTotalTimer);
 
         document
             .querySelectorAll(`.${PANEL_CLASS} `)
