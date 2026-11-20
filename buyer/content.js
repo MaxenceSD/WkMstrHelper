@@ -54,6 +54,69 @@
         return { card, input, button };
     }
 
+    function parseToolboxAmount(value) {
+        const amount = Number(String(value).replace(/\D/g, ""));
+        return Number.isSafeInteger(amount) && amount > 0 ? amount : null;
+    }
+
+    function parseAuctionAmount(card, labelText) {
+        const label = [...card.querySelectorAll("span")].find(
+            element => element.textContent.trim() === labelText
+        );
+        const text = label?.nextElementSibling?.textContent;
+        const amount = Number(String(text ?? "").replace(/\D/g, ""));
+
+        return Number.isSafeInteger(amount) && amount > 0 ? amount : null;
+    }
+
+    let toolboxIsland = null;
+
+    function findInOpenShadowRoots(root, selector) {
+        const hosts = root.querySelectorAll("*");
+
+        for (const host of hosts) {
+            if (!host.shadowRoot) continue;
+
+            const island = host.shadowRoot.querySelector(selector) ||
+                findInOpenShadowRoots(host.shadowRoot, selector);
+
+            if (island) return island;
+        }
+
+        return null;
+    }
+
+    function getOptimalBidBase() {
+        const selector = '[aria-label="Analyse WikiMasters Toolbox"]';
+        const island = toolboxIsland?.isConnected
+            ? toolboxIsland
+            : document.querySelector(selector) ||
+                findInOpenShadowRoots(document, selector);
+
+        if (!island) return null;
+        toolboxIsland = island;
+
+        const marketRow = [...island.querySelectorAll(".kv")].find(row =>
+            [...row.querySelectorAll(".k")].some(
+                label => label.textContent.trim() === "Prix du marché Légendaire"
+            )
+        );
+        const marketPrice = parseToolboxAmount(
+            marketRow?.querySelector(".money.price-big")?.textContent
+        );
+        const siteAverageText = marketRow?.querySelector(".muted.small")?.textContent;
+        const siteAverageMatch = siteAverageText?.match(
+            /moyenne du site\s*([\d\s.,\u00a0\u202f]+)/i
+        );
+        const siteAverage = siteAverageMatch
+            ? parseToolboxAmount(siteAverageMatch[1])
+            : null;
+
+        if (marketPrice === null || siteAverage === null) return null;
+
+        return (marketPrice + siteAverage) / 2;
+    }
+
     // =====================================================
     // CRÉATION DU PANNEAU PERSONNALISÉ
     // =====================================================
@@ -62,6 +125,19 @@
 
         let customPanel = null;
         let observer = null;
+        let optimalBidRetryTimer = null;
+        let refreshOptimalBidScale = () => {};
+
+        function startOptimalBidRetry() {
+            if (optimalBidRetryTimer !== null) return;
+
+            optimalBidRetryTimer = setInterval(() => {
+                if (customPanel?.isConnected && refreshOptimalBidScale()) {
+                    clearInterval(optimalBidRetryTimer);
+                    optimalBidRetryTimer = null;
+                }
+            }, 500);
+        }
 
         function createPanel() {
 
@@ -178,6 +254,32 @@
 
             const minimum = Number(input.min) || 0;
 
+            function getCurrentMinimumBid() {
+                const currentOriginal = findOriginalBlock();
+
+                if (!currentOriginal) return minimum;
+
+                const inputMinimum = Number(currentOriginal.input.min) || minimum;
+                const startingBid = parseAuctionAmount(
+                    currentOriginal.card,
+                    "Mise de départ"
+                );
+                const currentBid = parseAuctionAmount(
+                    currentOriginal.card,
+                    "Mise actuelle"
+                );
+
+                if (currentBid !== null) {
+                    return Math.max(
+                        inputMinimum,
+                        startingBid ?? 0,
+                        Math.ceil(currentBid * 1.105)
+                    );
+                }
+
+                return Math.max(inputMinimum, startingBid ?? 0);
+            }
+
             function getCustomAmount() {
                 return Number(input.value);
             }
@@ -282,6 +384,136 @@
 
             customPanel.appendChild(quickActions);
 
+            const optimalScale = document.createElement("section");
+            optimalScale.style.cssText = `
+                display: none;
+                margin-top: 12px;
+                padding-top: 12px;
+                border-top: 1px solid var(--color-border);
+            `;
+
+            const optimalScaleHeading = document.createElement("div");
+            optimalScaleHeading.style.cssText = `
+                display: flex;
+                align-items: baseline;
+                justify-content: space-between;
+                gap: 8px;
+                margin-bottom: 8px;
+            `;
+
+            const optimalScaleTitle = document.createElement("span");
+            optimalScaleTitle.textContent = "Échelle de mise optimale";
+            optimalScaleTitle.style.cssText = "font-size: 12px; font-weight: 700;";
+
+            const optimalScaleBase = document.createElement("span");
+            optimalScaleBase.style.cssText = `
+                color: var(--color-foreground);
+                opacity: 0.65;
+                font-size: 10px;
+                text-align: right;
+            `;
+
+            optimalScaleHeading.append(optimalScaleTitle, optimalScaleBase);
+
+            const optimalScaleOptions = document.createElement("div");
+            optimalScaleOptions.style.cssText = `
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                gap: 6px;
+            `;
+
+            const optimalScaleButtons = [50, 75, 90, 100].map(percent => {
+                const button = document.createElement("button");
+                const percentLabel = document.createElement("span");
+                const amountLabel = document.createElement("span");
+
+                button.type = "button";
+                button.setAttribute(
+                    "aria-label",
+                    `Miser ${percent} % du prix moyen`
+                );
+                button.style.cssText = `
+                    display: flex;
+                    min-width: 0;
+                    flex-direction: column;
+                    align-items: center;
+                    gap: 3px;
+                    padding: 8px 3px;
+                    border: 1px solid var(--color-border);
+                    border-radius: 8px;
+                    background: var(--color-surface);
+                    color: var(--color-foreground);
+                    cursor: pointer;
+                `;
+
+                percentLabel.textContent = `${percent}%`;
+                percentLabel.style.cssText = "font-size: 12px; font-weight: 700;";
+                amountLabel.style.cssText = `
+                    max-width: 100%;
+                    overflow: hidden;
+                    font-size: 9px;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    opacity: 0.7;
+                `;
+                button.append(percentLabel, amountLabel);
+
+                button.addEventListener("click", () => {
+                    const base = getOptimalBidBase();
+
+                    if (base === null) return;
+
+                    const bid = Math.round(base * percent / 100);
+                    if (bid < getCurrentMinimumBid()) return;
+
+                    updateAmount(bid);
+                });
+
+                optimalScaleOptions.appendChild(button);
+                return { percent, amountLabel, button };
+            });
+
+            optimalScale.append(optimalScaleHeading, optimalScaleOptions);
+            customPanel.appendChild(optimalScale);
+
+            refreshOptimalBidScale = () => {
+                const base = getOptimalBidBase();
+                const isVisible = base !== null;
+
+                const display = isVisible ? "block" : "none";
+                if (optimalScale.style.display !== display) {
+                    optimalScale.style.display = display;
+                }
+
+                if (!isVisible) return;
+
+                const formattedBase = `Base moyenne : ${new Intl.NumberFormat("fr-FR").format(base)} ₩`;
+                if (optimalScaleBase.textContent !== formattedBase) {
+                    optimalScaleBase.textContent = formattedBase;
+                }
+
+                const minimumBid = getCurrentMinimumBid();
+
+                for (const { percent, amountLabel, button } of optimalScaleButtons) {
+                    const bid = Math.round(base * percent / 100);
+                    const formattedBid = `${new Intl.NumberFormat("fr-FR").format(bid)} ₩`;
+                    const isBelowMinimum = bid < minimumBid;
+
+                    if (amountLabel.textContent !== formattedBid) {
+                        amountLabel.textContent = formattedBid;
+                    }
+
+                    button.disabled = isBelowMinimum;
+                    button.title = isBelowMinimum
+                        ? `Mise minimale : ${new Intl.NumberFormat("fr-FR").format(minimumBid)} ₩`
+                        : `Miser ${formattedBid}`;
+                    button.style.opacity = isBelowMinimum ? "0.45" : "1";
+                    button.style.cursor = isBelowMinimum ? "not-allowed" : "pointer";
+                }
+
+                return true;
+            };
+
             // =================================================
             // BOUTON MISER
             // =================================================
@@ -361,6 +593,10 @@
                 customPanel
             );
 
+            if (!refreshOptimalBidScale()) {
+                startOptimalBidRetry();
+            }
+
             console.log(
                 "Wiki Masters : panneau personnalisé ajouté."
             );
@@ -375,11 +611,14 @@
             if (!customPanel?.isConnected) {
                 customPanel = null;
                 createPanel();
+            } else {
+                refreshOptimalBidScale();
             }
         });
 
         observer.observe(document.body, {
             childList: true,
+            characterData: true,
             subtree: true
         });
 
@@ -392,6 +631,8 @@
         return function cleanup() {
 
             observer?.disconnect();
+            clearInterval(optimalBidRetryTimer);
+            optimalBidRetryTimer = null;
 
             customPanel?.remove();
             customPanel = null;
