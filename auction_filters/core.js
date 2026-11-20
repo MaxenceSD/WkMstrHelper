@@ -9,7 +9,7 @@
   const FRAME = '.glow-c,.glow-pc,.glow-r,.glow-sr,.glow-ur,.glow-l,.shiny-card,.glow-shiny';
   const LINK = 'a.card-frame[href]';
   const DEFAULTS = Object.freeze({shinyOnly:false, minPrice:null, maxPrice:null, minMinutes:null, maxMinutes:null,
-    dealsOnly:false, discount:0, batches:5, collapsed:false});
+    dealsOnly:false, discount:0, batches:5});
   const clean = value => String(value ?? '').replace(/[\u00a0\u202f]/g, ' ').replace(/\s+/g,' ').trim();
   const norm = value => clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   function number(value, max = 100000000) {
@@ -22,7 +22,7 @@
     return {shinyOnly:p.shinyOnly === true || p.rarity === 'shiny',
       minPrice:number(p.minPrice), maxPrice:number(p.maxPrice), minMinutes:number(p.minMinutes,43200), maxMinutes:number(p.maxMinutes,43200),
       dealsOnly:p.dealsOnly === true, discount:number(p.discount,99) ?? 0,
-      batches:[2,5,10,20].includes(p.batches) ? p.batches : 5, collapsed:p.collapsed === true};
+      batches:[2,5,10,20].includes(p.batches) ? p.batches : 5};
   }
   // Accept the whole value field, never the first number of a free-form sentence.
   function money(value, decimal = false) {

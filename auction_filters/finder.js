@@ -207,7 +207,7 @@
   }
 
   function onSettings(patch) {
-    const filterChanged = Object.keys(patch).some(key => !['collapsed', 'batches'].includes(key));
+    const filterChanged = Object.keys(patch).some(key => key !== 'batches');
     prefs = C.settings({ ...prefs, ...patch }); save();
     if (filterChanged) {
       suspendedGrid = null;
