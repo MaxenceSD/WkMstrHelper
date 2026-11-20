@@ -10,13 +10,13 @@
     "scripting"
   ],
   "icons": {
-    "16": "icons/logo.png",
-    "48": "icons/logo.png",
-    "128": "icons/logo.png"
+    "16": "assets/icons/logo.png",
+    "48": "assets/icons/logo.png",
+    "128": "assets/icons/logo.png"
   },
   "action": {
     "default_title": "Clic automatique",
-    "default_popup": "popup/popup.html"
+    "default_popup": "ui/popup/popup.html"
   },
   "content_scripts": [
     {
@@ -25,24 +25,24 @@
         "https://wiki-masters.com/*"
       ],
       "css": [
-        "auction_filters/finder.css",
-        "quick-market/content.css",
-        "quick-market/modal.css",
-        "quick-auction/style.css"
+        "features/auction-filters/content.css",
+        "features/quick-market/content.css",
+        "features/quick-market/modal.css",
+        "features/quick-auction/content.css"
       ],
       "js": [
-        "opener/content.js",
-        "auction_filters/core.js",
-        "auction_filters/panel.js",
-        "auction_filters/finder.js",
-        "buyer/content.js",
-        "quick-market/storage.js",
-        "quick-market/api.js",
-        "quick-market/modal.js",
-        "quick-market/content.js",
-        "quick-auction/api.js",
-        "quick-auction/content.js",
-        "collection-auction/content.js"
+        "features/pack-opener/content.js",
+        "features/auction-filters/core.js",
+        "features/auction-filters/panel.js",
+        "features/auction-filters/content.js",
+        "features/quick-buyer/content.js",
+        "features/quick-market/storage.js",
+        "features/quick-market/api.js",
+        "features/quick-market/modal.js",
+        "features/quick-market/content.js",
+        "features/quick-auction/api.js",
+        "features/quick-auction/content.js",
+        "features/collection-auction/content.js"
       ],
       "run_at": "document_idle"
     }
