@@ -5,6 +5,7 @@
 
     const CARD_SELECTOR = '[id^="marketplace-auction-"]';
     const PANEL_CLASS = "wkm-qa-panel";
+    const SALES_TOTAL_ATTRIBUTE = "data-wkm-sales-total";
 
     // Évite les doubles injections du module.
     if (window[CONTROLLER_KEY]) {
@@ -12,6 +13,12 @@
     }
 
     let observer = null;
+    let salesTotalTimer = null;
+
+    function scheduleSalesTotalUpdate() {
+        clearTimeout(salesTotalTimer);
+        salesTotalTimer = setTimeout(updateSalesTabTotal, 100);
+    }
 
     /**
      * Vérifie que nous sommes sur la page marketplace.
@@ -21,6 +28,107 @@
             location.origin === "https://www.wiki-masters.com" &&
             location.pathname.replace(/\/$/, "") === "/marketplace"
         );
+    }
+
+    function findSalesTab() {
+        return [...document.querySelectorAll(
+            "div.flex.overflow-x-auto.border-b button"
+        )].find(button => /^Mes ventes(?:\s|\(|$)/.test(button.textContent.trim())) || null;
+    }
+
+    function getDisplayedAuctionPrice(card) {
+        const labels = [...card.querySelectorAll("span")];
+        const currentBidLabel = labels.find(
+            element => element.textContent.trim() === "Mise actuelle"
+        );
+        const startingBidLabel = labels.find(
+            element => element.textContent.trim() === "Mise de départ"
+        );
+
+        function parseAmount(label) {
+            const price = label?.nextElementSibling?.textContent.replace(/\D/g, "");
+            const amount = Number(price);
+            return Number.isSafeInteger(amount) && amount >= 0 ? amount : null;
+        }
+
+        return parseAmount(currentBidLabel) ?? parseAmount(startingBidLabel);
+    }
+
+    function createSalesTotalIndicator() {
+        const indicator = document.createElement("span");
+        indicator.setAttribute(SALES_TOTAL_ATTRIBUTE, "");
+        indicator.style.cssText = `
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            margin-left: 7px;
+            font-variant-numeric: tabular-nums;
+        `;
+
+        const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        icon.setAttribute("viewBox", "0 0 24 24");
+        icon.setAttribute("fill", "none");
+        icon.setAttribute("stroke", "currentColor");
+        icon.setAttribute("stroke-width", "2");
+        icon.setAttribute("stroke-linecap", "round");
+        icon.setAttribute("stroke-linejoin", "round");
+        icon.setAttribute("aria-hidden", "true");
+        icon.style.cssText = "width: 13px; height: 13px; flex: none;";
+
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("cx", "12");
+        circle.setAttribute("cy", "12");
+        circle.setAttribute("r", "9");
+
+        const mark = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        mark.setAttribute("d", "M7.5 8.5 9.5 15.5 12 10 14.5 15.5 16.5 8.5");
+
+        icon.append(circle, mark);
+        indicator.appendChild(icon);
+
+        return indicator;
+    }
+
+    function updateSalesTabTotal() {
+        const salesTab = findSalesTab();
+
+        if (!salesTab?.classList.contains("border-b-2")) return;
+
+        const cardElements = [...document.querySelectorAll(CARD_SELECTOR)];
+        const expectedCount = Number(
+            salesTab.textContent.match(/\((\d+)\s*\/\s*\d+\)/)?.[1]
+        );
+
+        if (
+            Number.isFinite(expectedCount) &&
+            expectedCount > 0 &&
+            cardElements.length < expectedCount
+        ) {
+            return;
+        }
+
+        const prices = cardElements.map(getDisplayedAuctionPrice);
+
+        if (prices.some(amount => amount === null)) return;
+
+        const total = prices.reduce((sum, amount) => sum + amount, 0);
+
+        let indicator = salesTab.querySelector(`[${SALES_TOTAL_ATTRIBUTE}]`);
+
+        if (!indicator) {
+            indicator = createSalesTotalIndicator();
+            salesTab.appendChild(indicator);
+        }
+
+        const formattedTotal = new Intl.NumberFormat("fr-FR").format(total);
+
+        if (indicator.lastChild?.textContent !== formattedTotal) {
+            if (indicator.lastChild?.nodeType === Node.TEXT_NODE) {
+                indicator.lastChild.textContent = formattedTotal;
+            } else {
+                indicator.appendChild(document.createTextNode(formattedTotal));
+            }
+        }
     }
 
     function isBrowseTabActive() {
@@ -449,6 +557,8 @@
             return;
         }
 
+        scheduleSalesTotalUpdate();
+
         // Dans les autres onglets, on retire tous les panneaux.
         if (!isBrowseTabActive()) {
             document
@@ -469,6 +579,7 @@
      */
     function destroy() {
         observer?.disconnect();
+        clearTimeout(salesTotalTimer);
 
         document
             .querySelectorAll(`.${PANEL_CLASS} `)
@@ -481,6 +592,7 @@
     observer.observe(document.documentElement, {
         childList: true,
         subtree: true,
+        characterData: true,
         attributes: true,
         attributeFilter: ["class"]
     });
