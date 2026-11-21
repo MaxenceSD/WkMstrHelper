@@ -12,6 +12,8 @@
   input[type=number],select{height:30px;min-width:0;background:#172235;border:1px solid #35435b;border-radius:6px;padding:4px 7px;color:#f2f5ff}
   input::placeholder{color:#7788a2}.discount{justify-content:space-between}.discount-toggle{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;white-space:nowrap}
   input[type=checkbox]{accent-color:#c6a9ff;width:14px;height:14px;margin:0}.discount-value{display:flex;align-items:center;gap:4px;color:var(--muted);font-size:11px}.discount-value input{width:54px}
+  .price-load{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;padding:7px 9px;border:1px solid #29364a;border-radius:9px;background:#0d1420}
+  .price-load button{background:#172b4d;border-color:#536b94;color:#e2ecff}.price-progress{color:var(--muted);font-size:11px}
   .explorer{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;padding:7px 9px;border:1px solid #29364a;border-radius:9px;background:#0d1420}
   .explorer-title{font-size:10px;font-weight:750;letter-spacing:.05em;text-transform:uppercase;color:#c7d2e5}.explorer-controls{display:flex;align-items:center;gap:6px}
   .explorer select{width:110px}.primary{background:#26334a;border-color:#465672}.stop{color:#ffc3ca;background:#392632}
@@ -39,6 +41,7 @@
             <label class="discount-value"><input id="discount" aria-label="Décote minimale en pourcentage" type="number" min="0" max="99" step="1"><span>%</span></label>
           </div>
         </div>
+        <div class="price-load"><button id="loadPrices" type="button" aria-label="Charger les prix moyens des cartes visibles" title="Charger les cartes légendaires visibles sans prix en cache">Chargement des prix</button><span class="price-progress" id="priceProgress" aria-live="polite"></span></div>
         <div class="explorer" aria-label="Défilement automatique">
           <strong class="explorer-title">Défilement automatique</strong>
           <div class="explorer-controls">
@@ -53,6 +56,7 @@
 
     const $ = id => root.getElementById(id), text = (id, value) => { if ($(id).textContent !== String(value)) $(id).textContent = String(value); };
     for (const id of ['start', 'stop']) $(id).addEventListener('click', () => actions[id]());
+    $('loadPrices').addEventListener('click', () => actions.loadPrices());
     $('dealsOnly').addEventListener('change', () => actions.change({ dealsOnly: $('dealsOnly').checked }));
     $('batches').addEventListener('change', () => actions.change({ batches: Number($('batches').value) }));
     for (const id of ['minPrice', 'maxPrice', 'minMinutes', 'maxMinutes', 'discount']) $(id).addEventListener('change', () => {
@@ -62,11 +66,18 @@
     });
 
     function render(state) {
-      const { prefs: p, scan } = state;
+      const { prefs: p, scan, priceLoad, priceAvailability } = state;
       for (const id of ['minPrice', 'maxPrice', 'minMinutes', 'maxMinutes', 'discount', 'batches']) {
         if (root.activeElement !== $(id)) $(id).value = p[id] ?? '';
       }
       $('dealsOnly').checked = p.dealsOnly;
+      $('loadPrices').disabled = !!priceLoad?.running || priceAvailability.available <= 0;
+      text('loadPrices', priceLoad?.running ? 'Chargement…' : 'Chargement des prix');
+      const next = `Prochain renouvellement du quota dans ${priceAvailability.label}`;
+      const available = `${priceAvailability.available} requêtes disponibles`;
+      const progress = priceLoad?.running ? `Lecture ${priceLoad.done}/${priceLoad.total} · ` : '';
+      const result = !priceLoad?.running && priceLoad?.message ? `${priceLoad.message} · ` : '';
+      text('priceProgress', `${progress}${result}${next} · ${available}`);
       const invalid = (p.minPrice !== null && p.maxPrice !== null && p.minPrice > p.maxPrice) || (p.minMinutes !== null && p.maxMinutes !== null && p.minMinutes > p.maxMinutes);
       text('error', state.error || (invalid ? 'Le minimum dépasse le maximum.' : ''));
       $('start').disabled = !!scan || invalid;

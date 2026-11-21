@@ -86,7 +86,12 @@
         return null;
     }
 
-    function getOptimalBidBase() {
+    function getOptimalBidBaseInfo() {
+        const cachedPrice = globalThis.WMFinderMarketPrice?.getCachedForAuction(location.pathname);
+        if (Number.isSafeInteger(cachedPrice) && cachedPrice > 0) {
+            return { amount: cachedPrice, source: "cache" };
+        }
+
         const selector = '[aria-label="Analyse WikiMasters Toolbox"]';
         const island = toolboxIsland?.isConnected
             ? toolboxIsland
@@ -104,17 +109,12 @@
         const marketPrice = parseToolboxAmount(
             marketRow?.querySelector(".money.price-big")?.textContent
         );
-        const siteAverageText = marketRow?.querySelector(".muted.small")?.textContent;
-        const siteAverageMatch = siteAverageText?.match(
-            /moyenne du site\s*([\d\s.,\u00a0\u202f]+)/i
-        );
-        const siteAverage = siteAverageMatch
-            ? parseToolboxAmount(siteAverageMatch[1])
-            : null;
 
-        if (marketPrice === null || siteAverage === null) return null;
+        return marketPrice === null ? null : { amount: marketPrice, source: "Toolbox" };
+    }
 
-        return (marketPrice + siteAverage) / 2;
+    function getOptimalBidBase() {
+        return getOptimalBidBaseInfo()?.amount ?? null;
     }
 
     // =====================================================
@@ -132,7 +132,8 @@
             if (optimalBidRetryTimer !== null) return;
 
             optimalBidRetryTimer = setInterval(() => {
-                if (customPanel?.isConnected && refreshOptimalBidScale()) {
+                if (customPanel?.isConnected && refreshOptimalBidScale() &&
+                    globalThis.WMFinderMarketPrice?.ready) {
                     clearInterval(optimalBidRetryTimer);
                     optimalBidRetryTimer = null;
                 }
@@ -430,7 +431,7 @@
                 button.type = "button";
                 button.setAttribute(
                     "aria-label",
-                    `Miser ${percent} % du prix moyen`
+                    `Miser ${percent} % du prix de référence`
                 );
                 button.style.cssText = `
                     display: flex;
@@ -477,8 +478,9 @@
             customPanel.appendChild(optimalScale);
 
             refreshOptimalBidScale = () => {
-                const base = getOptimalBidBase();
-                const isVisible = base !== null;
+                const baseInfo = getOptimalBidBaseInfo();
+                const base = baseInfo?.amount ?? null;
+                const isVisible = baseInfo !== null;
 
                 const display = isVisible ? "block" : "none";
                 if (optimalScale.style.display !== display) {
@@ -487,7 +489,7 @@
 
                 if (!isVisible) return;
 
-                const formattedBase = `Base moyenne : ${new Intl.NumberFormat("fr-FR").format(base)} ₩`;
+                const formattedBase = `Base ${baseInfo.source} : ${new Intl.NumberFormat("fr-FR").format(base)} ₩`;
                 if (optimalScaleBase.textContent !== formattedBase) {
                     optimalScaleBase.textContent = formattedBase;
                 }
@@ -593,7 +595,7 @@
                 customPanel
             );
 
-            if (!refreshOptimalBidScale()) {
+            if (!refreshOptimalBidScale() || !globalThis.WMFinderMarketPrice?.ready) {
                 startOptimalBidRetry();
             }
 
@@ -622,6 +624,14 @@
             subtree: true
         });
 
+        const refreshMarketPrice = (changes, area) => {
+            if (area === "local" &&
+                (changes.wmFinder12LegendaryPrices || changes.wmFinder12LegendaryAuctions)) {
+                refreshOptimalBidScale();
+            }
+        };
+        chrome.storage.onChanged.addListener(refreshMarketPrice);
+
         createPanel();
 
         // =================================================
@@ -631,6 +641,7 @@
         return function cleanup() {
 
             observer?.disconnect();
+            chrome.storage.onChanged.removeListener(refreshMarketPrice);
             clearInterval(optimalBidRetryTimer);
             optimalBidRetryTimer = null;
 

@@ -91,6 +91,19 @@
     const value=money(text,true);
     return value !== null && value>0 ? {state:'ready',value} : {state:'unreliable',value:null};
   }
+  function marketAverage(history) {
+    const weekly = history?.by_rarity?.L?.weekly;
+    if (!Array.isArray(weekly)) return null;
+    const computedAt = Date.parse(history?.computed_at);
+    const reference = Number.isFinite(computedAt) && computedAt > 0 && computedAt < Date.now() ? new Date(computedAt) : new Date();
+    const parisDay = new Intl.DateTimeFormat('en-CA', {timeZone:'Europe/Paris', year:'numeric', month:'2-digit', day:'2-digit'}).format(reference);
+    const monday = new Date(`${parisDay}T00:00:00Z`);
+    monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+    const latestWeek = monday.toISOString().slice(0, 10);
+    const entries = weekly.filter(w => w?.start && w.start <= latestWeek && w.avg != null && w.avg !== '' && Number.isFinite(Number(w.avg)))
+      .sort((a,b) => a.start.localeCompare(b.start));
+    return entries.length ? Math.max(1, Math.round(Number(entries[entries.length-1].avg))) : null;
+  }
   function identity(anchor, origin) {
     try {
       const url=new URL(anchor.getAttribute('href'),origin);
@@ -116,10 +129,12 @@
     const basic=rare && inRange(card.price,p.minPrice,p.maxPrice) && time;
     if (!basic) return {state:'excluded',match:false,pending:false,discount:null};
     if (!p.dealsOnly) return {state:'match',match:true,pending:false,discount:null};
-    if (card.quote.state==='pending') return {state:'pending',match:false,pending:true,discount:null};
-    if (card.quote.state!=='ready' || card.price===null || card.seconds===0) return {state:'unreliable',match:false,pending:false,discount:null};
-    const discount=100*(card.quote.value-card.price)/card.quote.value;
-    const match=card.price<card.quote.value && discount+1e-9>=p.discount;
+    if (card.rarity !== 'L') return {state:'excluded',match:false,pending:false,discount:null};
+    if (!card.marketPriceKnown || !card.marketPriceFresh) return {state:'pending',match:false,pending:true,discount:null};
+    if (card.marketPrice == null) return {state:'unreliable',match:false,pending:false,discount:null};
+    if (card.price===null || card.seconds===0) return {state:'unreliable',match:false,pending:false,discount:null};
+    const discount=100*(card.marketPrice-card.price)/card.marketPrice;
+    const match=card.price<card.marketPrice && discount+1e-9>=p.discount;
     return {state:match?'deal':'no-deal',match,pending:false,discount};
   }
   function tabName(text) {
@@ -130,5 +145,5 @@
     const cell=value => '"'+String(value??'').replace(/^[=+@\-\t\r]/,"'$&").replace(/"/g,'""')+'"';
     return '\uFEFF'+rows.map(row=>row.map(cell).join(';')).join('\r\n');
   }
-  return {RARITIES,FRAME,LINK,DEFAULTS,clean,norm,number,settings,money,seconds,fieldNodes,auctionPrice,quote,identity,read,inRange,evaluate,tabName,csv};
+  return {RARITIES,FRAME,LINK,DEFAULTS,clean,norm,number,settings,money,seconds,fieldNodes,auctionPrice,quote,marketAverage,identity,read,inRange,evaluate,tabName,csv};
 });

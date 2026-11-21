@@ -24,6 +24,17 @@
         "https://www.wiki-masters.com/*",
         "https://wiki-masters.com/*"
       ],
+      "js": [
+        "features/auction-filters/market-hook.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://www.wiki-masters.com/*",
+        "https://wiki-masters.com/*"
+      ],
       "css": [
         "features/auction-filters/content.css",
         "features/quick-market/content.css",
