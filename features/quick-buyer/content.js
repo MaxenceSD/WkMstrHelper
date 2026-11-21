@@ -423,7 +423,7 @@
                 gap: 6px;
             `;
 
-            const optimalScaleButtons = [50, 75, 90, 100].map(percent => {
+            const optimalScaleButtons = [30, 40, 50, 60, 70, 80, 90, 100].map(percent => {
                 const button = document.createElement("button");
                 const percentLabel = document.createElement("span");
                 const amountLabel = document.createElement("span");
