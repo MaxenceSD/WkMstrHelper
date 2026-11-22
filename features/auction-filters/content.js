@@ -14,6 +14,7 @@
   let pendingNavigation = null, scan = null, disposed = false;
   let batchTimer = null, syncTimer = null, timeTimer = null, quotaTimer = null, errorMessage = '';
   const cards = new Map(), dirty = new Set(), added = new Set(), timeDirty = new Set();
+  const sessionHiddenCards = new Set();
   const marketAuctions = new Map(), marketPrices = new Map();
   globalThis.WMFinderMarketPrice = {
     ready: false,
@@ -25,7 +26,7 @@
   };
   let priceLoad = { running: false, done: 0, total: 0, message: '' }, showMarketPrices = true;
   let marketQuota = { sent: [], limit: PRICE_LIMIT, blockedAt: null, blockedCount: null };
-  let quotaBadge = null, quotaParent = null, quotaLock = Promise.resolve();
+  let quotaLock = Promise.resolve();
   let removed = false, favorites = new Set();
   const rootPath = () => /^\/marketplace\/?$/.test(location.pathname);
   const filteringActive = () => (prefs.shinyOnly || prefs.minPrice !== null || prefs.maxPrice !== null ||
@@ -39,8 +40,13 @@
     else if (el.getAttribute(name) !== value) el.setAttribute(name, value);
   }
 
-  function clearMark(card) { card.root.removeAttribute('data-wmsf-hidden'); card.root.removeAttribute('data-wmsf-state'); }
+  function clearMark(card) {
+    card.root.removeAttribute('data-wmsf-hidden');
+    card.root.removeAttribute('data-wmsf-state');
+    removeHideButton(card);
+  }
   function removeMarketPriceBadge(card) { card.frame.querySelector(':scope > [data-wmsf-market-price]')?.remove(); }
+  function removeHideButton(card) { card.frame.querySelector(':scope > [data-wmsf-hide-card]')?.remove(); }
   const formattedPrice = value => Number(value).toLocaleString('fr-FR');
   const cachedMarketPrice = cardId => marketPrices.get(cardId)?.price ?? null;
   const hasCachedMarketPrice = cardId => marketPrices.has(cardId);
@@ -68,6 +74,30 @@
     badge.textContent = entry.price == null ? 'Aucune vente' : `${formattedPrice(entry.price)} ₩${stale ? ' · ancien' : ''}`;
     badge.title = entry.price == null ? 'Aucune vente connue pour cette carte légendaire' :
       `Prix moyen du marché (légendaire), actualisé le ${new Date(entry.t).toLocaleString('fr-FR')}${stale ? ' — cache de plus de 24 h' : ''}`;
+  }
+  function renderHideButton(card) {
+    const eligible = card.result?.state === 'deal' && card.marketPriceKnown && card.marketPriceFresh;
+    if (!eligible || sessionHiddenCards.has(card.id)) {
+      removeHideButton(card);
+      return;
+    }
+    let button = card.frame.querySelector(':scope > [data-wmsf-hide-card]');
+    if (!button) {
+      button = document.createElement('button');
+      button.type = 'button';
+      button.setAttribute('data-wmsf-hide-card', '');
+      button.setAttribute('aria-label', 'Cacher cette carte pour cette session');
+      button.title = 'Cacher cette carte pour cette session';
+      button.textContent = 'Cacher';
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        sessionHiddenCards.add(card.id);
+        apply(card);
+        removeHideButton(card);
+      });
+      card.frame.append(button);
+    }
   }
   function renderMarketPrices() {
     for (const card of cards.values()) {
@@ -98,7 +128,16 @@
     const label = nextReleaseAt
       ? `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
       : 'aucun renouvellement requis';
-    return { waitMs, label, available: q.remaining, nextReleaseAt };
+    return {
+      waitMs,
+      label,
+      available: q.remaining,
+      sent: q.sent,
+      limit: q.limit,
+      blockedAt: marketQuota.blockedAt,
+      blockedCount: marketQuota.blockedCount,
+      nextReleaseAt
+    };
   }
   function normalizeQuota(value) {
     const q = value && typeof value === 'object' ? value : {};
@@ -129,7 +168,6 @@
       quotaLock = current.catch(() => {});
       await current;
     }
-    updateQuotaBadge();
     return result;
   }
   async function noteQuotaBlock() {
@@ -139,7 +177,6 @@
     marketQuota.blockedAt = Date.now();
     marketQuota.blockedCount = count;
     await chrome.storage.local.set({ [MARKET_QUOTA_KEY]: marketQuota });
-    updateQuotaBadge();
   }
   async function beginPriceSession() {
     let allowed = false;
@@ -153,38 +190,7 @@
       quotaLock = current.catch(() => {});
       await current;
     }
-    updateQuotaBadge();
     return allowed;
-  }
-  function ensureQuotaBadge() {
-    if (!rootPath()) {
-      quotaBadge?.remove(); quotaBadge = null; quotaParent = null;
-      return;
-    }
-    const balance = document.querySelector('button[aria-label^="Ouvrir la boutique WikiBidous"]');
-    const parent = balance?.parentElement;
-    if (!parent) return;
-    if (quotaParent !== parent || !quotaBadge?.isConnected) {
-      quotaBadge?.remove();
-      quotaParent = parent;
-      quotaBadge = document.createElement('span');
-      quotaBadge.setAttribute('data-wmsf-quota', '');
-      quotaBadge.setAttribute('role', 'status');
-      quotaBadge.style.cssText = 'display:inline-flex;align-items:center;margin-left:.5rem;padding:.25rem .4rem;border:1px solid #69b8ff;border-radius:.5rem;background:rgba(20,103,177,.96);color:#f2f9ff;font:600 11px/1.2 system-ui,sans-serif;white-space:nowrap;pointer-events:auto';
-      parent.append(quotaBadge);
-    }
-    updateQuotaBadge();
-  }
-  function updateQuotaBadge() {
-    if (!quotaBadge?.isConnected || !rootPath()) return;
-    const q = quotaInfo();
-    const availability = priceAvailability();
-    quotaBadge.textContent = marketQuota.blockedAt
-      ? `Prix ${q.sent} · reste ${q.remaining}/${q.limit}`
-      : `Prix ${q.sent}/100 · reste ${q.remaining}`;
-    quotaBadge.title = marketQuota.blockedAt
-      ? `Prochaine session ${availability.label.toLowerCase()}. Dernier refus après ${marketQuota.blockedCount} requêtes ; plafond prudent ${q.limit}.`
-      : `Prochaine session ${availability.label.toLowerCase()}. Les requêtes d'autres extensions/onglets ne sont pas comptées.`;
   }
   async function saveMarketPrices() {
     const saved = await chrome.storage.local.get(MARKET_CACHE_KEY);
@@ -308,7 +314,6 @@
       priceLoad.message = `Lecture arrêtée : ${error.message || 'erreur de stockage'}`;
     } finally {
       priceLoad.running = false;
-      updateQuotaBadge();
       render();
     }
   }
@@ -364,7 +369,7 @@
   }
 
   function suspend() {
-    stopScan(); stopWork(); browse = false; suspendedGrid = null;
+    stopScan(); stopWork(); sessionHiddenCards.clear(); browse = false; suspendedGrid = null;
     if (ui) { ui.host.remove(); ui = null; }
     if (shinyButtonGroup) shinyButtonGroup.removeAttribute('data-wm-rarity-group');
     if (shinyButton) { shinyButton.remove(); shinyButton = null; shinyButtonGroup = null; }
@@ -404,7 +409,7 @@
 
   function sync() {
     syncTimer = null; if (disposed || document.hidden) return;
-    observeMain(); ensureQuotaBadge(); const view = activeView();
+    observeMain(); const view = activeView();
     if (!view) { suspend(); return; }
     browse = true;
     requestMarketplaceSnapshot();
@@ -437,8 +442,12 @@
 
   function apply(card) {
     card.result = C.evaluate(card, prefs);
-    setAttr(card.root, 'data-wmsf-hidden', card.result.match || card.result.pending ? null : 'true');
+    const sessionHidden = sessionHiddenCards.has(card.id);
+    setAttr(card.root, 'data-wmsf-hidden', (card.result.match || card.result.pending) && !sessionHidden ? null : 'true');
     setAttr(card.root, 'data-wmsf-state', card.result.state === 'deal' || card.result.pending ? card.result.state : null);
+    if (sessionHidden) setAttr(card.root, 'data-wmsf-state', null);
+    if (visible(card.anchor)) renderHideButton(card);
+    else removeHideButton(card);
   }
 
   function readCard(anchor) {
@@ -703,6 +712,7 @@
   if (window.navigation) window.navigation.addEventListener('currententrychange', () => { pendingNavigation = null; clearShinyFilter(); suspend(); scheduleSync(); });
 
   window.addEventListener('pagehide', () => {
+    sessionHiddenCards.clear();
     clearShinyFilter();
     stopScan(); stopWork(); pageObserver.disconnect(); tabsObserver.disconnect(); shellObserver.disconnect();
     clearInterval(quotaTimer); quotaTimer = null;
@@ -715,7 +725,7 @@
     shellObserver.observe(document.body, { childList: true });
     for (const el of document.querySelectorAll('main,[role="main"]')) for (let p = el.parentElement; p && p !== document.body; p = p.parentElement)shellObserver.observe(p, { childList: true });
     observeMain();
-    if (quotaTimer === null) quotaTimer = setInterval(() => { ensureQuotaBadge(); updateQuotaBadge(); render(); }, 1000);
+    if (quotaTimer === null) quotaTimer = setInterval(() => render(), 1000);
   }
 
   async function init() {
@@ -748,7 +758,6 @@
     if (area !== 'local') return;
     if (changes[MARKET_QUOTA_KEY]) {
       marketQuota = normalizeQuota(changes[MARKET_QUOTA_KEY].newValue);
-      updateQuotaBadge();
     }
     if (changes[MARKET_CACHE_KEY]) {
       marketPrices.clear();

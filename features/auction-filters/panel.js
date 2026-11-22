@@ -73,11 +73,14 @@
       $('dealsOnly').checked = p.dealsOnly;
       $('loadPrices').disabled = !!priceLoad?.running || priceAvailability.available <= 0;
       text('loadPrices', priceLoad?.running ? 'Chargement…' : 'Chargement des prix');
-      const next = `Prochain renouvellement du quota dans ${priceAvailability.label}`;
-      const available = `${priceAvailability.available} requêtes disponibles`;
+      const quota = `Prix ${priceAvailability.sent} · reste ${priceAvailability.available}/${priceAvailability.limit}`;
+      const next = `Prochain renouvellement dans ${priceAvailability.label}`;
+      const blocked = priceAvailability.blockedCount !== null
+        ? ` · dernier refus après ${priceAvailability.blockedCount} requêtes`
+        : '';
       const progress = priceLoad?.running ? `Lecture ${priceLoad.done}/${priceLoad.total} · ` : '';
       const result = !priceLoad?.running && priceLoad?.message ? `${priceLoad.message} · ` : '';
-      text('priceProgress', `${progress}${result}${next} · ${available}`);
+      text('priceProgress', `${progress}${result}${quota} · ${next}${blocked}`);
       const invalid = (p.minPrice !== null && p.maxPrice !== null && p.minPrice > p.maxPrice) || (p.minMinutes !== null && p.maxMinutes !== null && p.minMinutes > p.maxMinutes);
       text('error', state.error || (invalid ? 'Le minimum dépasse le maximum.' : ''));
       $('start').disabled = !!scan || invalid;
