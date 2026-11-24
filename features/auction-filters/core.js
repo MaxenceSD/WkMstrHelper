@@ -91,8 +91,8 @@
     const value=money(text,true);
     return value !== null && value>0 ? {state:'ready',value} : {state:'unreliable',value:null};
   }
-  function marketAverage(history) {
-    const weekly = history?.by_rarity?.L?.weekly;
+  function marketAverage(history, rarity = 'L') {
+    const weekly = history?.by_rarity?.[rarity]?.weekly;
     if (!Array.isArray(weekly)) return null;
     const computedAt = Date.parse(history?.computed_at);
     const reference = Number.isFinite(computedAt) && computedAt > 0 && computedAt < Date.now() ? new Date(computedAt) : new Date();

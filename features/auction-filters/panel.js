@@ -66,21 +66,16 @@
     });
 
     function render(state) {
-      const { prefs: p, scan, priceLoad, priceAvailability } = state;
+      const { prefs: p, scan, priceLoad } = state;
       for (const id of ['minPrice', 'maxPrice', 'minMinutes', 'maxMinutes', 'discount', 'batches']) {
         if (root.activeElement !== $(id)) $(id).value = p[id] ?? '';
       }
       $('dealsOnly').checked = p.dealsOnly;
-      $('loadPrices').disabled = !!priceLoad?.running || priceAvailability.available <= 0;
+      $('loadPrices').disabled = !!priceLoad?.running;
       text('loadPrices', priceLoad?.running ? 'Chargement…' : 'Chargement des prix');
-      const quota = `Prix ${priceAvailability.sent} · reste ${priceAvailability.available}/${priceAvailability.limit}`;
-      const next = `Prochain renouvellement dans ${priceAvailability.label}`;
-      const blocked = priceAvailability.blockedCount !== null
-        ? ` · dernier refus après ${priceAvailability.blockedCount} requêtes`
-        : '';
-      const progress = priceLoad?.running ? `Lecture ${priceLoad.done}/${priceLoad.total} · ` : '';
-      const result = !priceLoad?.running && priceLoad?.message ? `${priceLoad.message} · ` : '';
-      text('priceProgress', `${progress}${result}${quota} · ${next}${blocked}`);
+      const progress = priceLoad?.running ? `Lecture ${priceLoad.done}/${priceLoad.total}` : '';
+      const message = priceLoad?.message || '';
+      text('priceProgress', [progress, message].filter(Boolean).join(' · '));
       const invalid = (p.minPrice !== null && p.maxPrice !== null && p.minPrice > p.maxPrice) || (p.minMinutes !== null && p.maxMinutes !== null && p.minMinutes > p.maxMinutes);
       text('error', state.error || (invalid ? 'Le minimum dépasse le maximum.' : ''));
       $('start').disabled = !!scan || invalid;

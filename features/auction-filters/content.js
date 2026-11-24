@@ -1,32 +1,33 @@
-/* Local DOM filters plus user-triggered, quota-limited legendary price reads. */
+/* Local DOM filtering plus user-triggered market price reads. */
 (() => {
   'use strict';
   if (!/^(www\.)?wiki-masters\.com$/.test(location.hostname) || globalThis.__wmFinder12) return;
   globalThis.__wmFinder12 = true;
   const C = globalThis.WMFinderCore, P = globalThis.WMFinderPanel;
   const KEY = 'wmFinder12Prefs', WATCH_KEY = 'wmshV5Watchlist';
-  const MARKET_CACHE_KEY = 'wmFinder12LegendaryPrices', MARKET_QUOTA_KEY = 'wmFinder12MarketPriceQuota';
+  const MARKET_CACHE_KEY = 'wmFinder12LegendaryPrices';
   const MARKET_AUCTIONS_KEY = 'wmFinder12LegendaryAuctions';
   const LIMIT = 2000, PRICE_TTL = 24 * 60 * 60 * 1000, PRICE_GAP = 500;
-  const PRICE_WINDOW = 10 * 60 * 1000, PRICE_LIMIT = 100;
+  const PRICE_RETRY_DELAY = 60 * 1000;
   let prefs = { ...C.DEFAULTS }, ui = null, main = null, grid = null, suspendedGrid = null, tabbar = null, browse = false;
   let shinyButton = null, shinyButtonGroup = null;
   let pendingNavigation = null, scan = null, disposed = false;
-  let batchTimer = null, syncTimer = null, timeTimer = null, quotaTimer = null, errorMessage = '';
+  let batchTimer = null, syncTimer = null, timeTimer = null, priceStaleTimer = null, errorMessage = '';
   const cards = new Map(), dirty = new Set(), added = new Set(), timeDirty = new Set();
   const sessionHiddenCards = new Set();
   const marketAuctions = new Map(), marketPrices = new Map();
+  let marketPriceSave = Promise.resolve();
+  const priceKey = (cardId, rarity) => `${cardId}|${rarity}`;
+  const marketEntry = (cardId, rarity = 'L') => marketPrices.get(priceKey(cardId, rarity)) || null;
   globalThis.WMFinderMarketPrice = {
     ready: false,
     getCachedForAuction(path) {
       const listing = marketAuctions.get(String(path || '').replace(/\/$/, ''));
-      if (!listing || listing.rarity !== 'L' || !hasFreshMarketPrice(listing.cardId)) return null;
-      return cachedMarketPrice(listing.cardId);
+      if (!listing || !hasFreshMarketPrice(listing.cardId, listing.rarity)) return null;
+      return cachedMarketPrice(listing.cardId, listing.rarity);
     }
   };
   let priceLoad = { running: false, done: 0, total: 0, message: '' }, showMarketPrices = true;
-  let marketQuota = { sent: [], limit: PRICE_LIMIT, blockedAt: null, blockedCount: null };
-  let quotaLock = Promise.resolve();
   let removed = false, favorites = new Set();
   const rootPath = () => /^\/marketplace\/?$/.test(location.pathname);
   const filteringActive = () => (prefs.shinyOnly || prefs.minPrice !== null || prefs.maxPrice !== null ||
@@ -48,32 +49,136 @@
   function removeMarketPriceBadge(card) { card.frame.querySelector(':scope > [data-wmsf-market-price]')?.remove(); }
   function removeHideButton(card) { card.frame.querySelector(':scope > [data-wmsf-hide-card]')?.remove(); }
   const formattedPrice = value => Number(value).toLocaleString('fr-FR');
-  const cachedMarketPrice = cardId => marketPrices.get(cardId)?.price ?? null;
-  const hasCachedMarketPrice = cardId => marketPrices.has(cardId);
-  const hasFreshMarketPrice = cardId => {
-    const entry = marketPrices.get(cardId);
-    return Boolean(entry) && Date.now() - entry.t < PRICE_TTL;
+  const cachedMarketPrice = (cardId, rarity = 'L') => marketEntry(cardId, rarity)?.price ?? null;
+  const hasCachedMarketPrice = (cardId, rarity = 'L') => marketEntry(cardId, rarity) !== null;
+  const priceAge = entry => Date.now() - (entry?.computedAt ?? entry?.t ?? 0);
+  const hasFreshMarketPrice = (cardId, rarity = 'L') => {
+    const entry = marketEntry(cardId, rarity);
+    return Boolean(entry) && priceAge(entry) < PRICE_TTL;
   };
-  const marketPriceExpired = cardId => {
-    const entry = marketPrices.get(cardId);
-    return !entry || Date.now() - entry.t >= PRICE_TTL;
+  const marketPriceExpired = (cardId, rarity = 'L') => {
+    const entry = marketEntry(cardId, rarity);
+    return !entry || Date.now() - (entry.fetchedAt ?? entry.t ?? 0) >= PRICE_TTL;
   };
-  function renderMarketPrice(card) {
-    if (!showMarketPrices || card.rarity !== 'L') { removeMarketPriceBadge(card); return; }
-    const listing = marketAuctions.get(card.id);
-    if (!listing || listing.rarity !== 'L') { removeMarketPriceBadge(card); return; }
-    const entry = marketPrices.get(listing.cardId);
-    if (!entry) { removeMarketPriceBadge(card); return; }
-    let badge = card.frame.querySelector(':scope > [data-wmsf-market-price]');
+  function renderMarketPriceBadge(frame, cardId, rarity) {
+    const entry = marketEntry(cardId, rarity);
+    if (!entry) {
+      frame.querySelector(':scope > [data-wmsf-market-price]')?.remove();
+      return;
+    }
+    let badge = frame.querySelector(':scope > [data-wmsf-market-price]');
     if (!badge) {
       badge = document.createElement('span');
       badge.setAttribute('data-wmsf-market-price', '');
-      card.frame.append(badge);
+      frame.append(badge);
     }
-    const stale = entry && Date.now() - entry.t >= PRICE_TTL;
-    badge.textContent = entry.price == null ? 'Aucune vente' : `${formattedPrice(entry.price)} ₩${stale ? ' · ancien' : ''}`;
-    badge.title = entry.price == null ? 'Aucune vente connue pour cette carte légendaire' :
-      `Prix moyen du marché (légendaire), actualisé le ${new Date(entry.t).toLocaleString('fr-FR')}${stale ? ' — cache de plus de 24 h' : ''}`;
+    const stale = priceAge(entry) >= PRICE_TTL;
+    badge.toggleAttribute('data-stale', stale);
+    const text = entry.price == null ? 'Aucune vente' : `${formattedPrice(entry.price)} ₩${stale ? ' · ancien' : ''}`;
+    if (badge.textContent !== text) badge.textContent = text;
+    const title = entry.price == null ? `Aucune vente connue pour cette carte (${rarity})` :
+      `Prix moyen (${rarity}), calculé le ${new Date(entry.computedAt ?? entry.t).toLocaleString('fr-FR')}${stale ? ' — données de plus de 24 h' : ''}`;
+    if (badge.title !== title) badge.title = title;
+  }
+  function renderMarketPrice(card) {
+    if (!showMarketPrices) { removeMarketPriceBadge(card); return; }
+    const listing = marketAuctions.get(card.id);
+    if (!listing) { removeMarketPriceBadge(card); return; }
+    renderMarketPriceBadge(card.frame, listing.cardId, listing.rarity);
+  }
+  function renderAuctionDetailPrice() {
+    const match = location.pathname.match(/^\/marketplace\/([^/]+)\/?$/);
+    if (!match) return;
+    const listing = marketAuctions.get(`/marketplace/${match[1]}`);
+    if (!listing) return;
+    const root = document.getElementById(`marketplace-auction-${match[1]}`) ||
+      document.querySelector('main,[role="main"]') || document;
+    const candidates = [
+      ...(root instanceof Element && root.matches(C.FRAME) ? [root] : []),
+      ...root.querySelectorAll(C.FRAME)
+    ];
+    const titledCandidate = listing.title
+      ? candidates.find(item => C.norm(item.querySelector('h3')?.textContent) === C.norm(listing.title))
+      : null;
+    const rarityCandidates = candidates.filter(item =>
+      item.classList.contains(`glow-${listing.rarity.toLowerCase()}`) ||
+      (listing.rarity === 'L' && (item.classList.contains('shiny-card') || item.classList.contains('glow-shiny')))
+    );
+    const frame = titledCandidate || (rarityCandidates.length === 1 ? rarityCandidates[0] : null);
+    if (frame) renderMarketPriceBadge(frame, listing.cardId, listing.rarity);
+  }
+  function updateCardPrice(cardId, rarity) {
+    for (const [anchor, card] of cards) {
+      const listing = marketAuctions.get(card.id);
+      if (listing?.cardId !== cardId || listing.rarity !== rarity) continue;
+      card.marketPrice = cachedMarketPrice(cardId, rarity);
+      card.marketPriceKnown = hasCachedMarketPrice(cardId, rarity);
+      card.marketPriceFresh = hasFreshMarketPrice(cardId, rarity);
+      apply(card);
+      if (visible(anchor)) renderMarketPrice(card);
+      else removeMarketPriceBadge(card);
+    }
+  }
+  function serializeMarketPrices() {
+    const serialized = {};
+    for (const [key, entry] of marketPrices) {
+      const separator = key.lastIndexOf('|');
+      const cardId = key.slice(0, separator), rarity = key.slice(separator + 1);
+      serialized[cardId] ||= { byRarity: {} };
+      serialized[cardId].byRarity[rarity] = entry;
+    }
+    return serialized;
+  }
+  function loadMarketPrices(saved) {
+    marketPrices.clear();
+    for (const [cardId, value] of Object.entries(saved || {})) {
+      if (value && Number.isFinite(value.t) &&
+          (value.price === null || (Number.isFinite(value.price) && value.price >= 0))) {
+        marketPrices.set(priceKey(cardId, 'L'), {
+          price: value.price, t: value.t, computedAt: value.t, fetchedAt: value.t
+        });
+        continue;
+      }
+      for (const [rarity, entry] of Object.entries(value?.byRarity || {})) {
+        if (!C.RARITIES.includes(rarity) || !entry || !Number.isFinite(entry.t) ||
+            (entry.price !== null && (!Number.isFinite(entry.price) || entry.price < 0))) continue;
+        marketPrices.set(priceKey(cardId, rarity), {
+          price: entry.price,
+          t: entry.t,
+          computedAt: Number.isFinite(entry.computedAt) ? entry.computedAt : entry.t,
+          fetchedAt: Number.isFinite(entry.fetchedAt) ? entry.fetchedAt : entry.t
+        });
+      }
+    }
+  }
+  function savePriceHistory(cardId, history) {
+    const fetchedAt = Date.now();
+    const parsedComputedAt = Date.parse(history?.computed_at);
+    const computedAt = Number.isFinite(parsedComputedAt) && parsedComputedAt <= fetchedAt
+      ? parsedComputedAt
+      : fetchedAt;
+    let found = false;
+    for (const rarity of C.RARITIES) {
+      if (!Array.isArray(history?.by_rarity?.[rarity]?.weekly)) continue;
+      marketPrices.set(priceKey(cardId, rarity), {
+        price: C.marketAverage(history, rarity),
+        t: fetchedAt,
+        fetchedAt,
+        computedAt: Number.isFinite(computedAt) ? computedAt : fetchedAt
+      });
+      found = true;
+    }
+    if (!found) return false;
+    const saved = marketPriceSave.then(() =>
+      chrome.storage.local.set({ [MARKET_CACHE_KEY]: serializeMarketPrices() })
+    );
+    marketPriceSave = saved.catch(error => {
+      errorMessage = `Prix moyen non enregistré : ${error.message || 'erreur de stockage'}`;
+      render();
+    });
+    for (const rarity of C.RARITIES) updateCardPrice(cardId, rarity);
+    renderAuctionDetailPrice();
+    return saved.then(() => true);
   }
   function renderHideButton(card) {
     const eligible = card.result?.state === 'deal' && card.marketPriceKnown && card.marketPriceFresh;
@@ -102,99 +207,13 @@
   function renderMarketPrices() {
     for (const card of cards.values()) {
       const listing = marketAuctions.get(card.id);
-      card.marketPrice = listing?.rarity === 'L' ? cachedMarketPrice(listing.cardId) : null;
-      card.marketPriceKnown = listing?.rarity === 'L' && hasCachedMarketPrice(listing.cardId);
-      card.marketPriceFresh = listing?.rarity === 'L' && hasFreshMarketPrice(listing.cardId);
+      card.marketPrice = listing ? cachedMarketPrice(listing.cardId, listing.rarity) : null;
+      card.marketPriceKnown = listing ? hasCachedMarketPrice(listing.cardId, listing.rarity) : false;
+      card.marketPriceFresh = listing ? hasFreshMarketPrice(listing.cardId, listing.rarity) : false;
       apply(card);
       if (visible(card.anchor)) renderMarketPrice(card);
       else removeMarketPriceBadge(card);
     }
-  }
-  const quotaWindow = (now = Date.now()) => marketQuota.sent.filter(t => Number.isFinite(t) && now - t < PRICE_WINDOW && t <= now);
-  function quotaInfo(now = Date.now()) {
-    const sent = quotaWindow(now);
-    const limit = Math.max(0, Math.min(PRICE_LIMIT, Number.isInteger(marketQuota.limit) ? marketQuota.limit : PRICE_LIMIT));
-    return { sent: sent.length, limit, remaining: Math.max(0, limit - sent.length) };
-  }
-  function priceAvailability(now = Date.now()) {
-    const q = quotaInfo(now);
-    const sent = quotaWindow(now).sort((a, b) => a - b);
-    const releaseIndex = q.remaining > 0 ? 0 : Math.max(0, sent.length - q.limit);
-    const nextReleaseAt = sent.length ? sent[releaseIndex] + PRICE_WINDOW : null;
-    const waitMs = nextReleaseAt ? Math.max(0, nextReleaseAt - now) : 0;
-    const totalSeconds = Math.ceil(waitMs / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    const label = nextReleaseAt
-      ? `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-      : 'aucun renouvellement requis';
-    return {
-      waitMs,
-      label,
-      available: q.remaining,
-      sent: q.sent,
-      limit: q.limit,
-      blockedAt: marketQuota.blockedAt,
-      blockedCount: marketQuota.blockedCount,
-      nextReleaseAt
-    };
-  }
-  function normalizeQuota(value) {
-    const q = value && typeof value === 'object' ? value : {};
-    return {
-      sent: Array.isArray(q.sent) ? q.sent.filter(t => Number.isFinite(t) && Date.now() - t < PRICE_WINDOW && t <= Date.now()) : [],
-      limit: Number.isInteger(q.limit) ? Math.max(1, Math.min(PRICE_LIMIT, q.limit)) : PRICE_LIMIT,
-      blockedAt: Number.isFinite(q.blockedAt) ? q.blockedAt : null,
-      blockedCount: Number.isInteger(q.blockedCount) ? q.blockedCount : null
-    };
-  }
-  async function loadQuota() {
-    const saved = await chrome.storage.local.get(MARKET_QUOTA_KEY);
-    marketQuota = normalizeQuota(saved[MARKET_QUOTA_KEY]);
-  }
-  async function recordPriceRequest() {
-    let result = false;
-    const record = async () => {
-      await loadQuota();
-      const current = quotaInfo();
-      if (!current.remaining) return;
-      marketQuota.sent.push(Date.now());
-      await chrome.storage.local.set({ [MARKET_QUOTA_KEY]: marketQuota });
-      result = true;
-    };
-    if (navigator.locks?.request) await navigator.locks.request('wm-finder-market-price-quota', record);
-    else {
-      const current = quotaLock.then(record, record);
-      quotaLock = current.catch(() => {});
-      await current;
-    }
-    return result;
-  }
-  async function noteQuotaBlock() {
-    await loadQuota();
-    const count = quotaInfo().sent;
-    marketQuota.limit = Math.min(marketQuota.limit, Math.max(1, count - 1));
-    marketQuota.blockedAt = Date.now();
-    marketQuota.blockedCount = count;
-    await chrome.storage.local.set({ [MARKET_QUOTA_KEY]: marketQuota });
-  }
-  async function beginPriceSession() {
-    let allowed = false;
-    const begin = async () => {
-      await loadQuota();
-      allowed = quotaInfo().remaining > 0;
-    };
-    if (navigator.locks?.request) await navigator.locks.request('wm-finder-market-price-quota', begin);
-    else {
-      const current = quotaLock.then(begin, begin);
-      quotaLock = current.catch(() => {});
-      await current;
-    }
-    return allowed;
-  }
-  async function saveMarketPrices() {
-    const saved = await chrome.storage.local.get(MARKET_CACHE_KEY);
-    await chrome.storage.local.set({ [MARKET_CACHE_KEY]: { ...(saved[MARKET_CACHE_KEY] || {}), ...Object.fromEntries(marketPrices) } });
   }
   function visibleLegendaryAuctions() {
     const found = new Map();
@@ -208,18 +227,6 @@
     }
     return [...found.values()];
   }
-  function updateCardPrice(cardId) {
-    for (const [anchor, card] of cards) {
-      const listing = marketAuctions.get(card.id);
-      if (listing?.cardId !== cardId) continue;
-      card.marketPrice = cachedMarketPrice(cardId);
-      card.marketPriceKnown = hasCachedMarketPrice(cardId);
-      card.marketPriceFresh = hasFreshMarketPrice(cardId);
-      apply(card);
-      if (showMarketPrices && visible(anchor)) renderMarketPrice(card);
-      else removeMarketPriceBadge(card);
-    }
-  }
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   async function fetchMarketPrice(cardId) {
     const response = await fetch(`${location.origin}/api/marketplace/cards/${encodeURIComponent(cardId)}/price-history`, {
@@ -228,20 +235,31 @@
     const text = await response.text();
     let data;
     try { data = text ? JSON.parse(text) : {}; }
-    catch { throw new Error(`Réponse du site illisible (HTTP ${response.status}).`); }
+    catch {
+      const error = new Error(`Réponse du site illisible (HTTP ${response.status}).`);
+      error.status = response.status;
+      throw error;
+    }
     if (!response.ok) {
       const error = new Error(data.error || data.message || `HTTP ${response.status}`);
       error.status = response.status;
       error.code = data.code;
       throw error;
     }
-    if (!data || typeof data !== 'object' || !data.by_rarity || typeof data.by_rarity !== 'object' ||
-        (data.by_rarity.L != null && (!data.by_rarity.L || typeof data.by_rarity.L !== 'object' ||
-          !Array.isArray(data.by_rarity.L.weekly))))
+    if (!data || typeof data !== 'object' || !data.by_rarity || typeof data.by_rarity !== 'object')
       throw new Error('Format de prix inattendu.');
-    marketPrices.set(cardId, { price: C.marketAverage(data), t: Date.now() });
-    await saveMarketPrices();
-    updateCardPrice(cardId);
+    if (!await savePriceHistory(cardId, data)) throw new Error('Aucun historique de prix exploitable.');
+  }
+  const isPriceRequestBlocked = error => /automati|rate|limit|block/i.test(error.code || '') ||
+    error.status === 403 || error.status === 429;
+  async function waitAfterPriceBlock() {
+    for (let seconds = Math.ceil(PRICE_RETRY_DELAY / 1000); seconds > 0; seconds--) {
+      if (!browse || !rootPath() || document.hidden) return false;
+      priceLoad.message = `Limite temporaire du site ; nouvelle tentative dans ${seconds} s.`;
+      render();
+      await wait(1000);
+    }
+    return browse && rootPath() && !document.hidden;
   }
   async function loadVisiblePrices() {
     if (priceLoad.running || !browse || !rootPath() || document.hidden || !grid) return;
@@ -253,61 +271,50 @@
       await wait(100);
       const candidates = visibleLegendaryAuctions();
       for (const item of candidates) {
-        item.card.marketPrice = cachedMarketPrice(item.cardId);
-        item.card.marketPriceKnown = hasCachedMarketPrice(item.cardId);
-        item.card.marketPriceFresh = hasFreshMarketPrice(item.cardId);
+        item.card.marketPrice = cachedMarketPrice(item.cardId, item.card.rarity);
+        item.card.marketPriceKnown = hasCachedMarketPrice(item.cardId, item.card.rarity);
+        item.card.marketPriceFresh = hasFreshMarketPrice(item.cardId, item.card.rarity);
         item.card.root = rootOf(item.anchor);
         cards.set(item.anchor, item.card);
         apply(item.card);
         if (visible(item.anchor)) renderMarketPrice(item.card);
         else removeMarketPriceBadge(item.card);
       }
-      const pending = candidates.filter(item => marketPriceExpired(item.cardId));
+      const pending = candidates.filter(item => marketPriceExpired(item.cardId, item.card.rarity));
       if (!pending.length) {
         priceLoad.message = 'Aucun nouveau prix à charger parmi les cartes légendaires visibles.';
         return;
       }
-      if (!await beginPriceSession()) {
-        priceLoad.message = 'La prochaine session de chargement n’est pas encore disponible.';
-        return;
-      }
-      const q = quotaInfo();
-      priceLoad.total = Math.min(pending.length, q.remaining);
+      priceLoad.total = pending.length;
       render();
       for (const item of pending) {
         if (!browse || !rootPath() || document.hidden) break;
         if (!visible(item.anchor)) continue;
-        if (!marketPriceExpired(item.cardId)) continue;
+        if (!marketPriceExpired(item.cardId, item.card.rarity)) continue;
         if (priceLoad.done > 0) await wait(PRICE_GAP);
-        if (!await recordPriceRequest()) {
-          priceLoad.message = 'Plafond des 10 minutes atteint ; le reste n’a pas été chargé.';
-          break;
-        }
-        try {
-          await fetchMarketPrice(item.cardId);
-          priceLoad.done++;
-          render();
-        } catch (error) {
-          if (error.code === 'automation_limit' || error.status === 429 ||
-              (error.status === 403 && /automati|limite|limit/i.test(error.message))) {
-            try {
-              await noteQuotaBlock();
-              priceLoad.message = `Refus du site après ${marketQuota.blockedCount} requêtes en 10 min : lecture arrêtée, plafond prudent ramené à ${marketQuota.limit}.`;
-            } catch {
-              priceLoad.message = `Refus du site : lecture arrêtée, mais le nouveau plafond n’a pas pu être sauvegardé.`;
+        let loaded = false;
+        while (!loaded && browse && rootPath() && !document.hidden) {
+          try {
+            await fetchMarketPrice(item.cardId);
+            priceLoad.done++;
+            priceLoad.message = '';
+            render();
+            loaded = true;
+          } catch (error) {
+            if (isPriceRequestBlocked(error)) {
+              if (!await waitAfterPriceBlock()) break;
+            } else {
+              priceLoad.message = `Lecture arrêtée après une erreur : ${error.message || 'erreur réseau'}`;
+              break;
             }
-          } else {
-            priceLoad.message = `Lecture arrêtée après une erreur : ${error.message || 'erreur réseau'}`;
           }
-          break;
         }
+        if (!loaded) break;
       }
       if (!priceLoad.message && (document.hidden || !browse))
         priceLoad.message = `Lecture interrompue : ${priceLoad.done}/${priceLoad.total} prix chargés.`;
       else if (!priceLoad.message && priceLoad.done < priceLoad.total)
         priceLoad.message = `Lecture terminée : ${priceLoad.done}/${priceLoad.total} prix chargés.`;
-      else if (!priceLoad.message && pending.length > priceLoad.total)
-        priceLoad.message = `Lecture terminée : ${priceLoad.done} prix chargés ; ${pending.length - priceLoad.done} autres attendent le prochain quota.`;
       else if (!priceLoad.message)
         priceLoad.message = priceLoad.total ? `Lecture terminée : ${priceLoad.done} prix chargés.` : 'Aucun nouveau prix à charger parmi les cartes légendaires visibles.';
     } catch (error) {
@@ -322,9 +329,13 @@
     for (const auction of data?.auctions || []) {
       const cardId = auction?.card_id || auction?.card?.id;
       const rarity = auction?.snapshot_rarity || auction?.card?.rarity;
-      if (auction?.id && typeof cardId === 'string' && rarity === 'L') {
+      if (auction?.id && typeof cardId === 'string' && C.RARITIES.includes(rarity)) {
         const path = `/marketplace/${auction.id}`;
-        const listing = { cardId, rarity };
+        const listing = {
+          cardId,
+          rarity,
+          title: auction.card?.wikipedia_title || auction.card?.name || ''
+        };
         if (JSON.stringify(marketAuctions.get(path)) !== JSON.stringify(listing)) {
           marketAuctions.set(path, listing);
           changed = true;
@@ -339,11 +350,32 @@
         });
     }
     renderMarketPrices();
+    renderAuctionDetailPrice();
+  }
+  function receiveAuction(auction) {
+    if (!auction?.id || typeof auction.cardId !== 'string' || !C.RARITIES.includes(auction.rarity)) return;
+    marketAuctions.set(`/marketplace/${auction.id}`, {
+        cardId: auction.cardId,
+        rarity: auction.rarity,
+        title: typeof auction.title === 'string' ? auction.title : ''
+    });
+    chrome.storage.local.set({ [MARKET_AUCTIONS_KEY]: Object.fromEntries(marketAuctions) })
+        .catch(error => {
+          errorMessage = `Correspondance de l’enchère non sauvegardée : ${error.message || 'erreur de stockage'}`;
+          render();
+        });
+    renderAuctionDetailPrice();
   }
   window.addEventListener('message', event => {
     const message = event.data;
-    if (event.source === window && event.origin === location.origin && message?.__wmsfMarketHook === true)
-      receiveMarketplace(message.data);
+    if (event.source !== window || event.origin !== location.origin || message?.__wmsfMarketHook !== true) return;
+    if (message.type === 'marketplace') receiveMarketplace(message.data);
+    else if (message.type === 'auction') receiveAuction(message.auction);
+    else if (message.type === 'price-history' && typeof message.cardId === 'string')
+        savePriceHistory(message.cardId, message.data).catch(error => {
+          errorMessage = `Prix moyen non enregistré : ${error.message || 'erreur de stockage'}`;
+          render();
+        });
   });
   function requestMarketplaceSnapshot() {
     window.postMessage({ __wmsfMarketContent: true, type: 'snapshot' }, location.origin);
@@ -409,10 +441,12 @@
 
   function sync() {
     syncTimer = null; if (disposed || document.hidden) return;
-    observeMain(); const view = activeView();
+    observeMain();
+    requestMarketplaceSnapshot();
+    renderAuctionDetailPrice();
+    const view = activeView();
     if (!view) { suspend(); return; }
     browse = true;
-    requestMarketplaceSnapshot();
     ensureShinyButton(view.scope);
     if (tabbar !== view.bar) {
       tabsObserver.disconnect(); tabbar = view.bar;
@@ -456,9 +490,9 @@
     if (!card) { if (previous) clearMark(previous); cards.delete(anchor); return; }
     card.root = rootOf(anchor); if (previous && previous.root !== card.root) clearMark(previous);
     const listing = marketAuctions.get(card.id);
-    card.marketPrice = listing?.rarity === 'L' ? cachedMarketPrice(listing.cardId) : null;
-    card.marketPriceKnown = listing?.rarity === 'L' && hasCachedMarketPrice(listing.cardId);
-    card.marketPriceFresh = listing?.rarity === 'L' && hasFreshMarketPrice(listing.cardId);
+    card.marketPrice = listing ? cachedMarketPrice(listing.cardId, listing.rarity) : null;
+    card.marketPriceKnown = listing ? hasCachedMarketPrice(listing.cardId, listing.rarity) : false;
+    card.marketPriceFresh = listing ? hasFreshMarketPrice(listing.cardId, listing.rarity) : false;
     cards.set(anchor, card); apply(card);
     if (visible(anchor)) renderMarketPrice(card);
     else removeMarketPriceBadge(card);
@@ -604,7 +638,7 @@
 
   function render() {
     updateShinyButton();
-    if (ui) ui.render({ prefs, scan: !!scan, priceLoad, priceAvailability: priceAvailability(), error: errorMessage });
+    if (ui) ui.render({ prefs, scan: !!scan, priceLoad, error: errorMessage });
   }
 
   function loadButtons() {
@@ -715,7 +749,7 @@
     sessionHiddenCards.clear();
     clearShinyFilter();
     stopScan(); stopWork(); pageObserver.disconnect(); tabsObserver.disconnect(); shellObserver.disconnect();
-    clearInterval(quotaTimer); quotaTimer = null;
+    clearInterval(priceStaleTimer); priceStaleTimer = null;
     clearTimeout(syncTimer); syncTimer = null; disposed = true;
   });
 
@@ -725,25 +759,29 @@
     shellObserver.observe(document.body, { childList: true });
     for (const el of document.querySelectorAll('main,[role="main"]')) for (let p = el.parentElement; p && p !== document.body; p = p.parentElement)shellObserver.observe(p, { childList: true });
     observeMain();
-    if (quotaTimer === null) quotaTimer = setInterval(() => render(), 1000);
+    if (priceStaleTimer === null) {
+      priceStaleTimer = setInterval(() => {
+        for (const card of cards.values()) if (visible(card.anchor)) renderMarketPrice(card);
+        renderAuctionDetailPrice();
+      }, 60 * 1000);
+    }
   }
 
   async function init() {
     try {
-      const saved = await chrome.storage.local.get([KEY, WATCH_KEY, MARKET_CACHE_KEY, MARKET_QUOTA_KEY, MARKET_AUCTIONS_KEY]);
+      const saved = await chrome.storage.local.get([KEY, WATCH_KEY, MARKET_CACHE_KEY, MARKET_AUCTIONS_KEY]);
       const loadedPrefs = C.settings(saved[KEY]);
       prefs = { ...loadedPrefs, shinyOnly: false };
-      for (const [cardId, entry] of Object.entries(saved[MARKET_CACHE_KEY] || {})) {
-        if (typeof cardId === 'string' && entry && Number.isFinite(entry.t) &&
-            (entry.price === null || (Number.isFinite(entry.price) && entry.price >= 0)))
-          marketPrices.set(cardId, { price: entry.price, t: entry.t });
-      }
+      loadMarketPrices(saved[MARKET_CACHE_KEY]);
       for (const [path, listing] of Object.entries(saved[MARKET_AUCTIONS_KEY] || {})) {
         if (/^\/marketplace\/[^/?#]+$/.test(path) && listing &&
-            typeof listing.cardId === 'string' && listing.rarity === 'L')
-          marketAuctions.set(path, { cardId: listing.cardId, rarity: 'L' });
+            typeof listing.cardId === 'string' && C.RARITIES.includes(listing.rarity))
+          marketAuctions.set(path, {
+            cardId: listing.cardId,
+            rarity: listing.rarity,
+            title: typeof listing.title === 'string' ? listing.title : ''
+          });
       }
-      marketQuota = normalizeQuota(saved[MARKET_QUOTA_KEY]);
       favorites = new Set((Array.isArray(saved[WATCH_KEY]) ? saved[WATCH_KEY] : []).filter(x => typeof x === 'string').map(x => {
         try { return new URL(x, location.origin).pathname; } catch { return ''; }
       }).filter(x => /^\/marketplace\/[^/]+$/.test(x)).slice(0, 1000));
@@ -751,20 +789,15 @@
     } catch { errorMessage = 'Sauvegarde indisponible. Réglages par défaut dans cet onglet.'; }
     globalThis.WMFinderMarketPrice.ready = true;
     // Ignore legacy filters and scan-session keys.
-    startObservers(); sync();
+    startObservers(); requestMarketplaceSnapshot(); sync();
   }
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if (changes[MARKET_QUOTA_KEY]) {
-      marketQuota = normalizeQuota(changes[MARKET_QUOTA_KEY].newValue);
-    }
     if (changes[MARKET_CACHE_KEY]) {
-      marketPrices.clear();
-      for (const [cardId, entry] of Object.entries(changes[MARKET_CACHE_KEY].newValue || {}))
-        if (entry && Number.isFinite(entry.t) && (entry.price === null || (Number.isFinite(entry.price) && entry.price >= 0)))
-          marketPrices.set(cardId, { price: entry.price, t: entry.t });
+      loadMarketPrices(changes[MARKET_CACHE_KEY].newValue);
       renderMarketPrices();
+      renderAuctionDetailPrice();
     }
   });
 
